@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inneranimalmedia.com/schemas/wizard-chess-3d/save-state.schema.json",
+  "title": "Wizard Chess 3D Saved Game State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "updatedAt",
+    "fen",
+    "pgn",
+    "playMode",
+    "playerColor",
+    "difficulty",
+    "clockPreset",
+    "clockDirection",
+    "whiteSeconds",
+    "blackSeconds",
+    "moves",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "fen": { "type": "string", "minLength": 10 },
+    "pgn": { "type": "string" },
+    "playMode": { "type": "string", "enum": ["ai", "local"] },
+    "playerColor": { "type": "string", "enum": ["w", "b"] },
+    "difficulty": { "type": "string", "enum": ["novice", "club", "master"] },
+    "clockPreset": { "type": "string", "enum": ["bullet", "blitz", "rapid", "unlimited"] },
+    "clockDirection": { "type": "string", "enum": ["down", "up"] },
+    "whiteSeconds": { "type": "number", "minimum": 0 },
+    "blackSeconds": { "type": "number", "minimum": 0 },
+    "status": { "type": "string", "enum": ["active", "completed"] },
+    "result": { "type": "string", "enum": ["1-0", "0-1", "1/2-1/2"] },
+    "termination": { "type": "string" },
+    "moves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ply", "moveNumber", "san", "fromSq", "toSq", "color", "pieceType", "fenAfter"],
+        "properties": {
+          "ply": { "type": "integer", "minimum": 1 },
+          "moveNumber": { "type": "integer", "minimum": 1 },
+          "san": { "type": "string" },
+          "fromSq": { "type": "string" },
+          "toSq": { "type": "string" },
+          "color": { "type": "string", "enum": ["w", "b"] },
+          "pieceType": { "type": "string" },
+          "fromR": { "type": "integer" },
+          "fromC": { "type": "integer" },
+          "toR": { "type": "integer" },
+          "toC": { "type": "integer" },
+          "capture": { "type": "boolean" },
+          "capturedType": { "type": ["string", "null"] },
+          "isEnPassant": { "type": "boolean" },
+          "isCastle": { "type": ["string", "null"] },
+          "promotion": { "type": ["string", "null"] },
+          "fenAfter": { "type": "string" }
+        }
+      }
+    }
+  }
+}

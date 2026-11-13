@@ -1,0 +1,27 @@
+{
+  "schema_version": "v1",
+  "id": "inneranimalmedia.wizard-chess-3d",
+  "name": "Wizard Chess 3D",
+  "publisher": "InnerAnimalMedia",
+  "collection": "Entertainment",
+  "version": "1.0.0",
+  "description": "Play 3D Gothic Cathedral Wizard Chess with legal FIDE move execution, AI play, PGN/FEN replay, and interactive MCP App UI.",
+  "mcp": {
+    "endpoint": "https://mcp.inneranimalmedia.com/mcp",
+    "protocolVersion": "2025-11-21",
+    "uiResourceUri": "ui://inneranimalmedia.wizard-chess-3d/game.html",
+    "uiMimeType": "text/html;profile=mcp-app"
+  },
+  "auth": {
+    "type": "oauth2",
+    "protectedResourceMetadata": "https://mcp.inneranimalmedia.com/.well-known/oauth-protected-resource",
+    "authorizationServer": "https://inneranimalmedia.com/.well-known/oauth-authorization-server",
+    "scopesSupported": ["iam:profile", "iam:workspaces", "mcp:tools", "mcp:userinfo"],
+    "pkceRequired": true,
+    "codeChallengeMethodsSupported": ["S256"]
+  },
+  "assets": {
+    "icon": "./assets/icon-512x512.png",
+    "cover": "./assets/cover-1280x720.png"
+  }
+}

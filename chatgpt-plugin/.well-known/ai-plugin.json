@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Wizard Chess 3D",
+  "name_for_model": "wizard_chess_3d",
+  "description_for_human": "Play 3D Gothic Cathedral Wizard Chess with offline AI, local 2-player mode, chess clocks, and full PGN/FEN replay.",
+  "description_for_model": "Use this plugin/MCP app to launch Wizard Chess 3D, start new chess games, inspect board state in FEN/PGN, resume saved games, and submit legal SAN or coordinate moves.",
+  "auth": {
+    "type": "oauth",
+    "client_url": "https://inneranimalmedia.com/api/oauth/authorize",
+    "authorization_url": "https://inneranimalmedia.com/api/oauth/token",
+    "scope": "mcp:tools iam:profile",
+    "authorization_content_type": "application/json",
+    "pkce": {
+      "required": true,
+      "code_challenge_method": "S256"
+    }
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.json"
+  },
+  "logo_url": "/assets/icon-512x512.png",
+  "contact_email": "support@inneranimalmedia.com",
+  "legal_info_url": "https://inneranimalmedia.com/legal"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "wizard-chess-3d-chatgpt-plugin",
+  "version": "1.0.0",
+  "description": "Standalone ChatGPT App & MCP server for InnerAnimalMedia Wizard Chess 3D",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
+  }
+}

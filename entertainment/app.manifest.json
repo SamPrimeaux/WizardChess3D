@@ -1,0 +1,49 @@
+{
+  "$schema": "https://inneranimalmedia.com/schemas/entertainment-app.v1.json",
+  "id": "inneranimalmedia.wizard-chess-3d",
+  "name": "Wizard Chess 3D",
+  "shortName": "WizardChess",
+  "version": "1.0.0",
+  "publisher": {
+    "name": "InnerAnimalMedia",
+    "url": "https://inneranimalmedia.com"
+  },
+  "collection": "Entertainment",
+  "category": "Board Games",
+  "description": "3D Gothic Cathedral Wizard Chess with FIDE rules, melee stone capture physics, chess clocks, offline AI, local 2-player mode, PGN/FEN replay, and 2D WebGL fallback.",
+  "entry": {
+    "url": "/",
+    "hostParam": "hostMode=side-stage",
+    "supportsInline": true,
+    "supportsSideStage": true,
+    "supportsFullscreen": true
+  },
+  "capabilities": [
+    "single-player-ai",
+    "local-two-player",
+    "chess-clock",
+    "move-history-replay",
+    "pgn-fen-import-export",
+    "offline-pwa",
+    "webgl-with-2d-fallback",
+    "reduced-motion",
+    "web-audio-sfx"
+  ],
+  "schemas": {
+    "settings": "./schemas/settings.schema.json",
+    "saveState": "./schemas/save-state.schema.json"
+  },
+  "assets": {
+    "icon": "./assets/icon-512x512.png",
+    "cover": "./assets/cover-1280x720.png"
+  },
+  "events": {
+    "ready": "iam:entertainment:ready",
+    "stateUpdate": "iam:entertainment:state"
+  },
+  "storageKeys": {
+    "settings": "inneranimalmedia.wizard-chess-3d.settings.v1",
+    "activeGame": "inneranimalmedia.wizard-chess-3d.active-game.v1",
+    "history": "inneranimalmedia.wizard-chess-3d.history.v1"
+  }
+}

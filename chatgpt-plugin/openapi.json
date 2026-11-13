@@ -1,0 +1,91 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Wizard Chess 3D — InnerAnimalMedia",
+    "version": "1.0.0",
+    "description": "Chess session and legal move API backing Wizard Chess 3D ChatGPT App and MCP App integration."
+  },
+  "servers": [
+    { "url": "https://mcp.inneranimalmedia.com" }
+  ],
+  "paths": {
+    "/actions/create_game": {
+      "post": {
+        "operationId": "create_game",
+        "summary": "Create a new chess game session",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "playMode": { "type": "string", "enum": ["ai", "local"] },
+                  "playerColor": { "type": "string", "enum": ["w", "b"] },
+                  "difficulty": { "type": "string", "enum": ["novice", "club", "master"] },
+                  "clockPreset": { "type": "string", "enum": ["bullet", "blitz", "rapid", "unlimited"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Game session created" }
+        }
+      }
+    },
+    "/actions/get_game_state": {
+      "get": {
+        "operationId": "get_game_state",
+        "summary": "Read current FEN, PGN, turn, and status of a game",
+        "parameters": [
+          {
+            "name": "gameId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Current game state" }
+        }
+      }
+    },
+    "/actions/submit_legal_move": {
+      "post": {
+        "operationId": "submit_legal_move",
+        "summary": "Validate and apply a legal chess move in SAN or coordinate notation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["gameId"],
+                "properties": {
+                  "gameId": { "type": "string" },
+                  "san": { "type": "string" },
+                  "from": { "type": "string" },
+                  "to": { "type": "string" },
+                  "promotion": { "type": "string", "enum": ["q", "r", "b", "n"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated game state after legal move" }
+        }
+      }
+    },
+    "/actions/list_game_history": {
+      "get": {
+        "operationId": "list_game_history",
+        "summary": "List archived game sessions",
+        "responses": {
+          "200": { "description": "List of completed or archived games" }
+        }
+      }
+    }
+  }
+}

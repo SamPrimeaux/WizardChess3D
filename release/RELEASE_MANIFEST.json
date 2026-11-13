@@ -1,0 +1,30 @@
+{
+  "packageId": "inneranimalmedia.wizard-chess-3d",
+  "product": "Wizard Chess 3D",
+  "publisher": "InnerAnimalMedia",
+  "collection": "Entertainment",
+  "version": "1.0.0",
+  "generatedAt": "2026-11-13T06:24:08.832Z",
+  "artifacts": {
+    "source": {
+      "file": "wizard-chess-3d-source.zip",
+      "bytes": 17963173,
+      "sha256": "f204218327e21e29b42658012b9e9b361c4d3d0504bdb611a64c77c767bff57e"
+    },
+    "web": {
+      "file": "wizard-chess-3d-web.zip",
+      "bytes": 12625876,
+      "sha256": "3da15129d1e7b6584ddcb1e7107548ca97402e45e1a04c4c1feedeb251490971"
+    },
+    "chatgptPlugin": {
+      "file": "wizard-chess-3d-chatgpt-plugin.zip",
+      "bytes": 2076407,
+      "sha256": "17a86a0131e87208eb2b0245d2badc1fc58522b873cc4908f1b58ccf0007780b"
+    },
+    "entertainment": {
+      "file": "wizard-chess-3d-entertainment.zip",
+      "bytes": 2071394,
+      "sha256": "a3ee621aaf9998acd093d796f03a3c82fbfa9dc0f299d220b0a85ce1dbdd84a5"
+    }
+  }
+}
