@@ -92,6 +92,7 @@ test('Digital chess clock, Move History highlighting, PWA assets, and ecosystem 
   }
 
   for (const relPath of [
+    'src/arenas/roboticsLabArena.ts',
     'public/favicon-32x32.png',
     'public/apple-touch-icon.png',
     'public/pwa-192x192.png',
@@ -106,5 +107,31 @@ test('Digital chess clock, Move History highlighting, PWA assets, and ecosystem 
     'chatgpt-plugin/server.mjs',
   ]) {
     assert.ok(fs.existsSync(path.join(ROOT, relPath)), `Missing deliverable file ${relPath}`);
+  }
+
+  for (const multiArenaId of [
+    'home-arena-selector',
+    'btn-home-arena-cathedral',
+    'btn-home-arena-robotics',
+    'btn-arena-toggle',
+    'input-move-notation',
+  ]) {
+    assert.ok(appTsx.includes(`id="${multiArenaId}"`), `Missing multi-arena/input control #${multiArenaId}`);
+  }
+  for (const engineHook of [
+    'createRoboticsLabArena',
+    'createPieceSkinSystem',
+    'applyArenaToPiece',
+    'getShardMaterial',
+    'setArena',
+    'submitMoveNotation',
+  ]) {
+    assert.ok(engineJs.includes(engineHook), `Missing multi-arena/input engine hook ${engineHook}`);
+  }
+
+  const pieceSkinsTs = fs.readFileSync(path.join(ROOT, 'src/arenas/pieceSkins.ts'), 'utf-8');
+  assert.ok(pieceSkinsTs.includes('export function createPieceSkinSystem'), 'Missing createPieceSkinSystem export');
+  for (const boneName of ['Head', 'Tower_Upper', 'Rider_Head', 'Horse_Head', 'Head_Mitre', 'Head_Crown']) {
+    assert.ok(pieceSkinsTs.includes(`'${boneName}'`), `Missing astronaut bone anchor ${boneName}`);
   }
 });

@@ -9,6 +9,7 @@ import {
   saveCompletedGame,
   saveSettings,
   type AIDifficulty,
+  type ArenaId,
   type ClockDirection,
   type ClockPresetId,
   type CompletedGameRecord,
@@ -43,6 +44,7 @@ export interface WizardChessUISnapshot {
   gameId: string;
   fen: string;
   pgn: string;
+  arenaId: ArenaId;
   turn: PlayerColor;
   playMode: PlayMode;
   playerColor: PlayerColor;
@@ -113,6 +115,8 @@ export interface WizardChessController {
   stepReplay: (delta: number) => void;
   exitReplayToLive: () => void;
   setPlayMode: (mode: PlayMode) => void;
+  setArena: (arenaId: ArenaId) => void;
+  submitMoveNotation: (notation: string) => boolean;
   setPlayerColor: (color: PlayerColor) => void;
   setDifficulty: (diff: AIDifficulty) => void;
   setClockMode: (mode: ClockPresetId) => void;
@@ -227,6 +231,7 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       gameId,
       fen: activeEngine.getFen(),
       pgn: rules.getPgn(),
+      arenaId: settings.arenaId,
       turn: status.turn,
       playMode: settings.playMode,
       playerColor: settings.playerColor,
@@ -626,6 +631,21 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       cancelPendingAI();
       emit();
       maybeScheduleAIMove();
+    },
+    setArena(arenaId) {
+      settings.arenaId = arenaId === 'robotics' ? 'robotics' : 'cathedral';
+      persistSettings();
+      emit();
+    },
+    submitMoveNotation(notation) {
+      if (replayPly !== null || rules.getStatus().isGameOver) return false;
+      if (settings.playMode === 'ai' && rules.getTurn() !== settings.playerColor) return false;
+      const parsed = rules.resolveMoveNotation(notation);
+      if (!parsed) return false;
+      return executeChessMove(parsed.fromR, parsed.fromC, parsed.toR, parsed.toC, {
+        promotion: parsed.promotion,
+        skipPromotionPrompt: true,
+      });
     },
     setPlayerColor(color) {
       settings.playerColor = color;

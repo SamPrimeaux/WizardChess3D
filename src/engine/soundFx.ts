@@ -1,8 +1,11 @@
+import type { ArenaId } from '../arenas/roboticsLabArena';
+
 export type SoundEvent = 'select' | 'move' | 'capture' | 'check' | 'win' | 'loss' | 'draw' | 'timeout';
 
 class WizardSoundEngine {
   private ctx: AudioContext | null = null;
   private muted = false;
+  private arena: ArenaId = 'cathedral';
 
   setMuted(muted: boolean) {
     this.muted = Boolean(muted);
@@ -10,6 +13,14 @@ class WizardSoundEngine {
 
   isMuted(): boolean {
     return this.muted;
+  }
+
+  setArena(arenaId: ArenaId) {
+    this.arena = arenaId === 'robotics' ? 'robotics' : 'cathedral';
+  }
+
+  getArena(): ArenaId {
+    return this.arena;
   }
 
   private getContext(): AudioContext | null {
@@ -33,41 +44,77 @@ class WizardSoundEngine {
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
+    const isRobotics = this.arena === 'robotics';
 
     switch (event) {
       case 'select': {
-        this.tone(ctx, 420, 280, 0.045, 'triangle', 0.06, now);
+        if (isRobotics) {
+          this.tone(ctx, 980, 1320, 0.036, 'sine', 0.045, now);
+        } else {
+          this.tone(ctx, 420, 280, 0.045, 'triangle', 0.06, now);
+        }
         break;
       }
       case 'move': {
-        // Carved stone placement thud + soft slide harmonic
-        this.tone(ctx, 155, 82, 0.11, 'sine', 0.16, now);
-        this.tone(ctx, 310, 190, 0.06, 'triangle', 0.05, now + 0.01);
+        if (isRobotics) {
+          // Precision servo magnetic detent + dampened titanium tap
+          this.tone(ctx, 640, 420, 0.055, 'triangle', 0.055, now);
+          this.tone(ctx, 190, 96, 0.085, 'sine', 0.13, now + 0.015);
+        } else {
+          // Carved stone placement thud + soft slide harmonic
+          this.tone(ctx, 155, 82, 0.11, 'sine', 0.16, now);
+          this.tone(ctx, 310, 190, 0.06, 'triangle', 0.05, now + 0.01);
+        }
         break;
       }
       case 'capture': {
-        // Heavy stone shatter noise burst + low impact thump + bronze chime
-        this.noiseBurst(ctx, 0.24, 900, 0.18, now);
-        this.tone(ctx, 120, 48, 0.22, 'sawtooth', 0.14, now);
-        this.tone(ctx, 520, 320, 0.18, 'triangle', 0.07, now + 0.02);
+        if (isRobotics) {
+          // Kinetic titanium impact + plasma harmonic sweep
+          this.noiseBurst(ctx, 0.18, 2200, 0.15, now);
+          this.tone(ctx, 220, 62, 0.19, 'sawtooth', 0.11, now);
+          this.tone(ctx, 880, 340, 0.16, 'triangle', 0.075, now + 0.015);
+        } else {
+          // Heavy stone shatter noise burst + low impact thump + bronze chime
+          this.noiseBurst(ctx, 0.24, 900, 0.18, now);
+          this.tone(ctx, 120, 48, 0.22, 'sawtooth', 0.14, now);
+          this.tone(ctx, 520, 320, 0.18, 'triangle', 0.07, now + 0.02);
+        }
         break;
       }
       case 'check': {
-        this.tone(ctx, 587.33, 587.33, 0.28, 'sine', 0.1, now);
-        this.tone(ctx, 880, 880, 0.32, 'triangle', 0.06, now + 0.05);
+        if (isRobotics) {
+          this.tone(ctx, 880, 880, 0.12, 'sine', 0.08, now);
+          this.tone(ctx, 1174.66, 1174.66, 0.22, 'triangle', 0.075, now + 0.08);
+        } else {
+          this.tone(ctx, 587.33, 587.33, 0.28, 'sine', 0.1, now);
+          this.tone(ctx, 880, 880, 0.32, 'triangle', 0.06, now + 0.05);
+        }
         break;
       }
       case 'win': {
-        this.tone(ctx, 392.0, 392.0, 0.22, 'triangle', 0.09, now);
-        this.tone(ctx, 493.88, 493.88, 0.22, 'triangle', 0.09, now + 0.11);
-        this.tone(ctx, 587.33, 587.33, 0.36, 'triangle', 0.11, now + 0.22);
-        this.tone(ctx, 783.99, 783.99, 0.55, 'sine', 0.1, now + 0.34);
+        if (isRobotics) {
+          this.tone(ctx, 523.25, 523.25, 0.16, 'sine', 0.08, now);
+          this.tone(ctx, 659.25, 659.25, 0.18, 'sine', 0.085, now + 0.09);
+          this.tone(ctx, 783.99, 783.99, 0.24, 'triangle', 0.085, now + 0.18);
+          this.tone(ctx, 1046.5, 1046.5, 0.48, 'sine', 0.095, now + 0.28);
+        } else {
+          this.tone(ctx, 392.0, 392.0, 0.22, 'triangle', 0.09, now);
+          this.tone(ctx, 493.88, 493.88, 0.22, 'triangle', 0.09, now + 0.11);
+          this.tone(ctx, 587.33, 587.33, 0.36, 'triangle', 0.11, now + 0.22);
+          this.tone(ctx, 783.99, 783.99, 0.55, 'sine', 0.1, now + 0.34);
+        }
         break;
       }
       case 'loss': {
-        this.tone(ctx, 329.63, 311.13, 0.25, 'triangle', 0.09, now);
-        this.tone(ctx, 261.63, 246.94, 0.32, 'triangle', 0.09, now + 0.18);
-        this.tone(ctx, 196.0, 174.61, 0.48, 'sine', 0.11, now + 0.36);
+        if (isRobotics) {
+          this.tone(ctx, 440.0, 392.0, 0.20, 'sine', 0.08, now);
+          this.tone(ctx, 349.23, 293.66, 0.26, 'triangle', 0.08, now + 0.16);
+          this.tone(ctx, 220.0, 174.61, 0.42, 'sine', 0.095, now + 0.34);
+        } else {
+          this.tone(ctx, 329.63, 311.13, 0.25, 'triangle', 0.09, now);
+          this.tone(ctx, 261.63, 246.94, 0.32, 'triangle', 0.09, now + 0.18);
+          this.tone(ctx, 196.0, 174.61, 0.48, 'sine', 0.11, now + 0.36);
+        }
         break;
       }
       case 'draw': {
@@ -140,3 +187,4 @@ class WizardSoundEngine {
 }
 
 export const soundFx = new WizardSoundEngine();
+

@@ -26,6 +26,7 @@
     "updatedAt": { "type": "string", "format": "date-time" },
     "fen": { "type": "string", "minLength": 10 },
     "pgn": { "type": "string" },
+    "arenaId": { "type": "string", "enum": ["cathedral", "robotics"] },
     "playMode": { "type": "string", "enum": ["ai", "local"] },
     "playerColor": { "type": "string", "enum": ["w", "b"] },
     "difficulty": { "type": "string", "enum": ["novice", "club", "master"] },

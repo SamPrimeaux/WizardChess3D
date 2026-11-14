@@ -10,7 +10,7 @@
   },
   "collection": "Entertainment",
   "category": "Board Games",
-  "description": "3D Gothic Cathedral Wizard Chess with FIDE rules, melee stone capture physics, chess clocks, offline AI, local 2-player mode, PGN/FEN replay, and 2D WebGL fallback.",
+  "description": "3D Wizard Chess across multiple selectable arenas (Gothic Cathedral & Robotics Workcell) with FIDE rules, melee stone capture physics, chess clocks, offline AI, local 2-player mode, PGN/FEN replay, and 2D WebGL fallback.",
   "entry": {
     "url": "/",
     "hostParam": "hostMode=side-stage",
@@ -19,6 +19,7 @@
     "supportsFullscreen": true
   },
   "capabilities": [
+    "multi-arena-3d",
     "single-player-ai",
     "local-two-player",
     "chess-clock",

@@ -6,9 +6,11 @@ export type ClockDirection = 'down' | 'up';
 export type GraphicsQuality = 'low' | 'medium' | 'high';
 export type ReducedMotionSetting = 'system' | 'on' | 'off';
 export type RendererPreference = 'auto' | '2d';
+export type ArenaId = 'cathedral' | 'robotics';
 
 export interface GameSettings {
   schemaVersion: 1;
+  arenaId: ArenaId;
   playMode: PlayMode;
   playerColor: PlayerColor;
   difficulty: AIDifficulty;
@@ -57,6 +59,7 @@ export interface SavedGameState {
   status: 'active' | 'completed';
   result?: '1-0' | '0-1' | '1/2-1/2';
   termination?: string;
+  arenaId?: ArenaId;
 }
 
 export interface CompletedGameRecord {
@@ -73,6 +76,7 @@ export interface CompletedGameRecord {
   pgn: string;
   finalFen: string;
   moves: RecordedMove[];
+  arenaId?: ArenaId;
 }
 
 export const SETTINGS_STORAGE_KEY = 'inneranimalmedia.wizard-chess-3d.settings.v1';
@@ -81,6 +85,7 @@ export const HISTORY_STORAGE_KEY = 'inneranimalmedia.wizard-chess-3d.history.v1'
 
 export const DEFAULT_SETTINGS: GameSettings = {
   schemaVersion: 1,
+  arenaId: 'cathedral',
   playMode: 'ai',
   playerColor: 'w',
   difficulty: 'club',
@@ -114,6 +119,7 @@ export function loadSettings(): GameSettings {
       ...DEFAULT_SETTINGS,
       ...parsed,
       schemaVersion: 1,
+      arenaId: parsed.arenaId === 'robotics' ? 'robotics' : 'cathedral',
       playMode: parsed.playMode === 'local' ? 'local' : 'ai',
       playerColor: parsed.playerColor === 'b' ? 'b' : 'w',
       difficulty:

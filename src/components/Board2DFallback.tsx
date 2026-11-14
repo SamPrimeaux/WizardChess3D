@@ -10,6 +10,7 @@ interface Board2DFallbackProps {
   getLegalMoves: (r: number, c: number) => LegalTargetMove[];
   onMoveAttempt: (fromR: number, fromC: number, toR: number, toC: number) => void;
   fallbackReason?: string | null;
+  arenaId?: 'cathedral' | 'robotics';
 }
 
 const PIECE_UNICODE: Record<'w' | 'b', Record<string, string>> = {
@@ -40,6 +41,7 @@ export const Board2DFallback: React.FC<Board2DFallbackProps> = ({
   getLegalMoves,
   onMoveAttempt,
   fallbackReason,
+  arenaId = 'cathedral',
 }) => {
   const [selected, setSelected] = useState<{ r: number; c: number } | null>(null);
 
@@ -91,7 +93,13 @@ export const Board2DFallback: React.FC<Board2DFallbackProps> = ({
   };
 
   return (
-    <div id="board-2d-fallback" className="board-2d-stage" role="region" aria-label="2D Chessboard">
+    <div
+      id="board-2d-fallback"
+      className={`board-2d-stage arena-${arenaId}`}
+      data-arena={arenaId}
+      role="region"
+      aria-label="2D Chessboard"
+    >
       {fallbackReason && (
         <div className="board-2d-notice" role="status">
           {fallbackReason}

@@ -15,6 +15,7 @@ import {
   loadSettings,
   saveSettings,
   type AIDifficulty,
+  type ArenaId,
   type ClockDirection,
   type ClockPresetId,
   type CompletedGameRecord,
@@ -27,6 +28,7 @@ import {
   type RendererPreference,
   type SavedGameState,
 } from './engine/storage';
+import { ARENA_CATALOG } from './arenas/roboticsLabArena';
 import { Board2DFallback } from './components/Board2DFallback';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -51,6 +53,25 @@ const PIECE_GLYPHS: Record<string, string> = {
   pawn: '♟',
 };
 
+const PIECE_MATERIAL_POINTS: Record<string, number> = {
+  queen: 9,
+  rook: 5,
+  bishop: 3,
+  knight: 3,
+  pawn: 1,
+};
+
+const ARENA_CARD_META: Record<ArenaId, { tag: string; crewLabel: string }> = {
+  cathedral: {
+    tag: 'Sculpted Marble & Gold',
+    crewLabel: 'Royal Stone Sanctum',
+  },
+  robotics: {
+    tag: 'EVA Astronauts & 6-DOF Arm',
+    crewLabel: 'Orbital Telemetry Bay',
+  },
+};
+
 function formatClock(totalSeconds: number, direction: ClockDirection, preset: ClockPresetId): string {
   if (preset === 'unlimited' && direction === 'down') return '∞';
   const safe = Math.max(0, totalSeconds);
@@ -68,12 +89,139 @@ function formatClock(totalSeconds: number, direction: ClockDirection, preset: Cl
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function ArenaEmblem({ arena }: { arena: ArenaId }) {
+  if (arena === 'robotics') {
+    return (
+      <svg className="world-emblem" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <circle cx="14" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.75" />
+        <path
+          d="M8.5 11.5C10.5 9.2 17.5 9.2 19.5 11.5C19.5 14.3 17.2 16 14 16C10.8 16 8.5 14.3 8.5 11.5Z"
+          fill="currentColor"
+          fillOpacity="0.28"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path d="M14 2V4.5M4 23.5H24M9 19.5L7.5 23.5M19 19.5L20.5 23.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="world-emblem" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <path
+        d="M14 3.5V7.5M12 5.5H16M8.5 12L10.5 19H17.5L19.5 12L16.5 14L14 9.5L11.5 14L8.5 12Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M8 22.5H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function HudIcon({ name }: { name: 'undo' | 'draw' | 'resign' | 'reset' | 'camera' | 'arena' | 'soundOn' | 'soundOff' | 'view' | 'settings' | 'history' | 'hide' }) {
+  switch (name) {
+    case 'undo':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M8 5L4 9L8 13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4.5 9H12.5C15 9 16.5 10.6 16.5 12.8C16.5 14.7 15.1 16 13 16H10.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        </svg>
+      );
+    case 'draw':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M10 3.5V16.5M5 6.5H15M5 6.5L3 11.5H7L5 6.5ZM15 6.5L13 11.5H17L15 6.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        </svg>
+      );
+    case 'resign':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M5 3.5V17M5 4.5H14.5L12.5 8L14.5 11.5H5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'reset':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M15.8 7.5A6.5 6.5 0 1 0 16.4 12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M16 4V7.8H12.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'camera':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <rect x="2.8" y="5.5" width="10.4" height="9" rx="1.8" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M13.2 8.5L17.2 6.4V13.6L13.2 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'arena':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M10 2.5L16.5 6.2V13.8L10 17.5L3.5 13.8V6.2L10 2.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M10 10L16.5 6.2M10 10V17.5M10 10L3.5 6.2" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      );
+    case 'soundOn':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M3.5 8H6.8L11 4.5V15.5L6.8 12H3.5V8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M14 7.2C15 8.1 15.5 9 15.5 10C15.5 11 15 11.9 14 12.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case 'soundOff':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M3.5 8H6.8L11 4.5V15.5L6.8 12H3.5V8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M14 8L17.5 11.5M17.5 8L14 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case 'view':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="13" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M10 3.5V16.5M3.5 10H16.5" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="2.7" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M10 3V4.8M10 15.2V17M3 10H4.8M15.2 10H17M5.1 5.1L6.4 6.4M13.6 13.6L14.9 14.9M14.9 5.1L13.6 6.4M6.4 13.6L5.1 14.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case 'history':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M10 6.5V10.3L12.7 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'hide':
+      return (
+        <svg className="hud-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M2.5 10C4.6 6.6 7.1 5 10 5C12.9 5 15.4 6.6 17.5 10C15.4 13.4 12.9 15 10 15C7.1 15 4.6 13.4 2.5 10Z" stroke="currentColor" strokeWidth="1.6" />
+          <circle cx="10" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.6" />
+        </svg>
+      );
+  }
+}
+
 export default function App() {
   const controllerRef = useRef<WizardChessController | null>(null);
   const statusPillRef = useRef<HTMLDivElement | null>(null);
+  const cameraMenuRef = useRef<HTMLDivElement | null>(null);
   const historyListRef = useRef<HTMLDivElement | null>(null);
 
-  const initialSettings = useMemo<GameSettings>(() => loadSettings(), []);
+  const initialSettings = useMemo<GameSettings>(() => {
+    const loaded = loadSettings();
+    if (typeof window !== 'undefined') {
+      const urlArena = new URLSearchParams(window.location.search).get('arena');
+      if (urlArena === 'robotics' || urlArena === 'cathedral') {
+        return { ...loaded, arenaId: urlArena };
+      }
+    }
+    return loaded;
+  }, []);
   const mcpEmbedded = useMemo(() => isMcpHostEmbedded(), []);
 
   const [settingsState, setSettingsState] = useState<GameSettings>(initialSettings);
@@ -103,9 +251,12 @@ export default function App() {
   const [copiedFeedback, setCopiedFeedback] = useState<'pgn' | 'fen' | null>(null);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  const [moveNotationInput, setMoveNotationInput] = useState('');
+  const [moveNotationError, setMoveNotationError] = useState(false);
   const [uiHidden, setUiHidden] = useState(false);
 
   // Quick setup draft inside Opening Screen / Settings modal
+  const [draftArena, setDraftArena] = useState<ArenaId>(initialSettings.arenaId);
   const [draftPlayMode, setDraftPlayMode] = useState<PlayMode>(initialSettings.playMode);
   const [draftColor, setDraftColor] = useState<PlayerColor>(initialSettings.playerColor);
   const [draftDifficulty, setDraftDifficulty] = useState<AIDifficulty>(initialSettings.difficulty);
@@ -116,6 +267,12 @@ export default function App() {
   const [draftRenderer, setDraftRenderer] = useState<RendererPreference>(initialSettings.rendererPreference);
 
   const lastSyncedFenRef = useRef<string>('');
+  const activeArenaId: ArenaId = snapshot?.arenaId || settingsState.arenaId || draftArena || 'cathedral';
+  const visualArena: ArenaId = screen === 'home' ? draftArena : activeArenaId;
+
+  useEffect(() => {
+    document.body.dataset.arena = visualArena;
+  }, [visualArena]);
 
   // Mount / Remount 3D or 2D Controller cleanly when renderer preference changes
   useEffect(() => {
@@ -242,8 +399,12 @@ export default function App() {
       }
     };
     const handlePointerDown = (e: PointerEvent) => {
-      if (clockMenuOpen && statusPillRef.current && !statusPillRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (clockMenuOpen && statusPillRef.current && !statusPillRef.current.contains(target)) {
         setClockMenuOpen(false);
+      }
+      if (cameraMenuOpen && cameraMenuRef.current && !cameraMenuRef.current.contains(target)) {
+        setCameraMenuOpen(false);
       }
     };
     const handleResize = () => {
@@ -259,7 +420,7 @@ export default function App() {
       document.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('resize', handleResize);
     };
-  }, [clockMenuOpen, screen, activeModal]);
+  }, [clockMenuOpen, cameraMenuOpen, screen, activeModal]);
 
   // Auto-scroll Move History list
   useEffect(() => {
@@ -268,11 +429,24 @@ export default function App() {
     }
   }, [snapshot?.moves.length, snapshot?.isReplayMode]);
 
+  // Live preview Arena switch on Home screen
+  const handleSelectHomeArena = useCallback(
+    (id: ArenaId) => {
+      setDraftArena(id);
+      const nextSettings: GameSettings = { ...settingsState, arenaId: id };
+      saveSettings(nextSettings);
+      setSettingsState(nextSettings);
+      controllerRef.current?.setArena(id);
+    },
+    [settingsState]
+  );
+
   const startFreshMatch = useCallback(
     (overrides?: Partial<GameSettings>) => {
       const merged: GameSettings = {
         ...DEFAULT_SETTINGS,
         ...settingsState,
+        arenaId: draftArena,
         playMode: draftPlayMode,
         playerColor: draftColor,
         difficulty: draftDifficulty,
@@ -298,6 +472,7 @@ export default function App() {
     },
     [
       settingsState,
+      draftArena,
       draftPlayMode,
       draftColor,
       draftDifficulty,
@@ -322,6 +497,7 @@ export default function App() {
     const ctrl = controllerRef.current;
     const nextSettings: GameSettings = {
       ...settingsState,
+      arenaId: draftArena,
       playMode: draftPlayMode,
       playerColor: draftColor,
       difficulty: draftDifficulty,
@@ -340,6 +516,7 @@ export default function App() {
       return;
     }
     if (ctrl) {
+      if (snapshot?.arenaId !== draftArena) ctrl.setArena(draftArena);
       if (snapshot?.playMode !== draftPlayMode) ctrl.setPlayMode(draftPlayMode);
       if (snapshot?.playerColor !== draftColor) ctrl.setPlayerColor(draftColor);
       if (snapshot?.difficulty !== draftDifficulty) ctrl.setDifficulty(draftDifficulty);
@@ -351,6 +528,7 @@ export default function App() {
     setActiveModal('none');
   }, [
     settingsState,
+    draftArena,
     draftPlayMode,
     draftColor,
     draftDifficulty,
@@ -362,6 +540,32 @@ export default function App() {
     rendererPref,
     snapshot,
   ]);
+
+  const handleSwitchArenaLive = useCallback(() => {
+    const nextArena: ArenaId = activeArenaId === 'robotics' ? 'cathedral' : 'robotics';
+    const nextSettings: GameSettings = { ...settingsState, arenaId: nextArena };
+    saveSettings(nextSettings);
+    setSettingsState(nextSettings);
+    setDraftArena(nextArena);
+    controllerRef.current?.setArena(nextArena);
+  }, [activeArenaId, settingsState]);
+
+  const handleSubmitNotationMove = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const ctrl = controllerRef.current;
+      const trimmed = moveNotationInput.trim();
+      if (!ctrl || !trimmed) return;
+      const ok = ctrl.submitMoveNotation(trimmed);
+      if (ok) {
+        setMoveNotationInput('');
+        setMoveNotationError(false);
+      } else {
+        setMoveNotationError(true);
+      }
+    },
+    [moveNotationInput]
+  );
 
   const handleCopyText = useCallback((kind: 'pgn' | 'fen', text: string) => {
     if (!text) return;
@@ -388,13 +592,10 @@ export default function App() {
     setScreen('game');
   }, [importText]);
 
-  const handleToggleUI = useCallback(
-    (force?: boolean) => {
-      const next = controllerRef.current?.toggleUI(force);
-      if (typeof next === 'boolean') setUiHidden(next);
-    },
-    []
-  );
+  const handleToggleUI = useCallback((force?: boolean) => {
+    const next = controllerRef.current?.toggleUI(force);
+    if (typeof next === 'boolean') setUiHidden(next);
+  }, []);
 
   // Pair moves into rows for clean algebraic table
   const moveRows = useMemo(() => {
@@ -411,7 +612,7 @@ export default function App() {
   }, [snapshot?.moves]);
 
   const turnStatusLabel = useMemo(() => {
-    if (!snapshot) return 'Summoning Sanctum...';
+    if (!snapshot) return visualArena === 'robotics' ? 'Calibrating Workcell...' : 'Summoning Sanctum...';
     if (snapshot.isReplayMode) {
       return `Replay: Move ${snapshot.replayPly ?? 0} / ${snapshot.moves.length}`;
     }
@@ -425,11 +626,12 @@ export default function App() {
       return snapshot.termination || 'Game Over';
     }
     if (snapshot.isAIThinking) {
-      return `${snapshot.turn === 'w' ? 'White' : 'Black'} (AI Thinking...)`;
+      const actor = activeArenaId === 'robotics' ? '6-DOF Arm Thinking...' : 'AI Thinking...';
+      return `${snapshot.turn === 'w' ? 'White' : 'Black'} (${actor})`;
     }
     const base = snapshot.turn === 'w' ? 'White to Move' : 'Black to Move';
-    return snapshot.inCheck ? `${base} (Check!)` : base;
-  }, [snapshot]);
+    return snapshot.inCheck ? `${base} — CHECK` : base;
+  }, [snapshot, activeArenaId, visualArena]);
 
   const show2DBoard =
     rendererPref === '2d' || (snapshot !== null && !snapshot.webglActive);
@@ -470,12 +672,18 @@ export default function App() {
     .filter(Boolean)
     .join(' ');
 
-  const whiteCapturedGlyphs = (snapshot?.captured.byWhite || [])
-    .map((p) => PIECE_GLYPHS[p] || '')
-    .join('');
-  const blackCapturedGlyphs = (snapshot?.captured.byBlack || [])
-    .map((p) => PIECE_GLYPHS[p] || '')
-    .join('');
+  const capturedSummary = useMemo(() => {
+    const byWhite = snapshot?.captured.byWhite || [];
+    const byBlack = snapshot?.captured.byBlack || [];
+    const whiteScore = byWhite.reduce((acc, p) => acc + (PIECE_MATERIAL_POINTS[p] || 0), 0);
+    const blackScore = byBlack.reduce((acc, p) => acc + (PIECE_MATERIAL_POINTS[p] || 0), 0);
+    return {
+      whiteGlyphs: byWhite.map((p) => PIECE_GLYPHS[p] || '').join(''),
+      blackGlyphs: byBlack.map((p) => PIECE_GLYPHS[p] || '').join(''),
+      whiteLead: whiteScore > blackScore ? whiteScore - blackScore : 0,
+      blackLead: blackScore > whiteScore ? blackScore - whiteScore : 0,
+    };
+  }, [snapshot?.captured.byWhite, snapshot?.captured.byBlack]);
 
   return (
     <div className={mcpDisplayMode === 'inline' ? 'mcp-inline-shell' : ''}>
@@ -483,15 +691,22 @@ export default function App() {
 
       {!show2DBoard && (
         <div id="loading-overlay">
+          <div className="loader-emblem">
+            <ArenaEmblem arena={visualArena} />
+          </div>
           <div className="loader-title">Wizard Chess 3D</div>
           <div className="loader-bar-wrap">
             <div className="loader-bar" id="loader-bar"></div>
           </div>
-          <div id="loader-text">Summoning Sanctum Architecture &amp; Sculpted Pieces...</div>
+          <div id="loader-text">
+            {visualArena === 'robotics'
+              ? 'Initializing Workcell Optics & EVA Astronaut Fleet...'
+              : 'Summoning Sanctum Architecture & Sculpted Pieces...'}
+          </div>
         </div>
       )}
 
-      {/* 3D Cathedral Canvas (or 2D Fallback Board when WebGL is unavailable / 2D chosen) */}
+      {/* 3D Arena Canvas (or 2D Fallback Board when WebGL is unavailable / 2D chosen) */}
       <div
         id="canvas-container"
         style={{ display: show2DBoard ? 'none' : 'block' }}
@@ -516,10 +731,11 @@ export default function App() {
             controllerRef.current?.executeChessMove(fr, fc, tr, tc);
           }}
           fallbackReason={fallbackReason}
+          arenaId={activeArenaId}
         />
       )}
 
-      {/* OPENING SCREEN (Shown before entering game) */}
+      {/* OPENING SCREEN (Left-Docked Game Lobby showcasing Live 3D World on Right) */}
       {screen === 'home' && mcpDisplayMode !== 'inline' && (
         <main className="home-overlay" role="main" aria-label="Wizard Chess 3D Title Screen">
           <section className="home-card">
@@ -527,36 +743,60 @@ export default function App() {
               <span className="home-publisher-badge">InnerAnimalMedia • Entertainment</span>
               <span className="home-version-tag">v1.0.0</span>
             </div>
-            <h1 className="home-title">Wizard Chess 3D</h1>
-            <p className="home-subtitle">
-              Gothic cathedral arena with FIDE rules, melee stone captures, chess clocks, offline AI, and full PGN/FEN replay.
-            </p>
+
+            <div className="home-hero-block">
+              <h1 className="home-title">Wizard Chess 3D</h1>
+              <p className="home-subtitle">
+                {ARENA_CATALOG[draftArena].subtitle}
+              </p>
+            </div>
 
             <div className="home-setup-grid">
               <div className="setup-field">
-                <label className="setup-label">Game Mode</label>
-                <div className="segmented-row">
-                  <button
-                    type="button"
-                    className={`seg-btn ${draftPlayMode === 'ai' ? 'active' : ''}`}
-                    onClick={() => setDraftPlayMode('ai')}
-                  >
-                    vs Computer
-                  </button>
-                  <button
-                    type="button"
-                    className={`seg-btn ${draftPlayMode === 'local' ? 'active' : ''}`}
-                    onClick={() => setDraftPlayMode('local')}
-                  >
-                    Local 2-Player
-                  </button>
+                <label className="setup-label">Select Arena World</label>
+                <div className="world-card-grid" id="home-arena-selector">
+                  {(['cathedral', 'robotics'] as ArenaId[]).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      id={`btn-home-arena-${id}`}
+                      className={`world-card-btn ${draftArena === id ? 'active' : ''}`}
+                      onClick={() => handleSelectHomeArena(id)}
+                    >
+                      <ArenaEmblem arena={id} />
+                      <div className="world-card-copy">
+                        <span className="world-card-name">{ARENA_CATALOG[id].name}</span>
+                        <span className="world-card-tag">{ARENA_CARD_META[id].tag}</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {draftPlayMode === 'ai' && (
-                <>
+              <div className="setup-split-row">
+                <div className="setup-field">
+                  <label className="setup-label">Match Mode</label>
+                  <div className="segmented-row">
+                    <button
+                      type="button"
+                      className={`seg-btn ${draftPlayMode === 'ai' ? 'active' : ''}`}
+                      onClick={() => setDraftPlayMode('ai')}
+                    >
+                      {draftArena === 'robotics' ? 'vs 6-DOF AI' : 'vs Computer'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`seg-btn ${draftPlayMode === 'local' ? 'active' : ''}`}
+                      onClick={() => setDraftPlayMode('local')}
+                    >
+                      Local 2P
+                    </button>
+                  </div>
+                </div>
+
+                {draftPlayMode === 'ai' && (
                   <div className="setup-field">
-                    <label className="setup-label">Play As</label>
+                    <label className="setup-label">Command Side</label>
                     <div className="segmented-row">
                       <button
                         type="button"
@@ -574,22 +814,25 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="setup-field">
-                    <label className="setup-label">AI Difficulty</label>
-                    <div className="segmented-row triple">
-                      {(['novice', 'club', 'master'] as AIDifficulty[]).map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          className={`seg-btn ${draftDifficulty === d ? 'active' : ''}`}
-                          onClick={() => setDraftDifficulty(d)}
-                        >
-                          {d.charAt(0).toUpperCase() + d.slice(1)}
-                        </button>
-                      ))}
-                    </div>
+                )}
+              </div>
+
+              {draftPlayMode === 'ai' && (
+                <div className="setup-field">
+                  <label className="setup-label">AI Difficulty</label>
+                  <div className="segmented-row triple">
+                    {(['novice', 'club', 'master'] as AIDifficulty[]).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={`seg-btn ${draftDifficulty === d ? 'active' : ''}`}
+                        onClick={() => setDraftDifficulty(d)}
+                      >
+                        {d.charAt(0).toUpperCase() + d.slice(1)}
+                      </button>
+                    ))}
                   </div>
-                </>
+                </div>
               )}
 
               <div className="setup-field">
@@ -616,7 +859,7 @@ export default function App() {
                 className="sanctum-primary-btn large"
                 onClick={() => startFreshMatch()}
               >
-                Play New Match
+                Enter Arena &amp; Play
               </button>
 
               {savedActiveGame && (
@@ -626,7 +869,7 @@ export default function App() {
                   className="sanctum-secondary-btn large"
                   onClick={handleContinueSavedGame}
                 >
-                  Continue Saved Match ({savedActiveGame.moves.length} moves)
+                  Resume Saved Match ({savedActiveGame.moves.length} moves)
                 </button>
               )}
             </div>
@@ -647,7 +890,7 @@ export default function App() {
                   setActiveModal('history');
                 }}
               >
-                Game History ({completedGames.length})
+                Archive ({completedGames.length})
               </button>
               <button
                 type="button"
@@ -658,11 +901,19 @@ export default function App() {
                   setActiveModal('fenpgn');
                 }}
               >
-                Load FEN / PGN
+                FEN / PGN
               </button>
               <PWAInstallButton />
             </div>
           </section>
+
+          <div className="home-arena-stage-badge" aria-hidden="true">
+            <ArenaEmblem arena={draftArena} />
+            <div className="home-stage-meta">
+              <span className="home-stage-kicker">{ARENA_CARD_META[draftArena].crewLabel}</span>
+              <span className="home-stage-title">{ARENA_CATALOG[draftArena].name}</span>
+            </div>
+          </div>
         </main>
       )}
 
@@ -679,6 +930,7 @@ export default function App() {
             Show UI
           </button>
 
+          {/* TOP BROADCAST MATCH BAR */}
           <div id="hud-top">
             <div className="hud-group" id="hud-left">
               {mcpDisplayMode !== 'inline' && (
@@ -692,24 +944,27 @@ export default function App() {
                     setCameraMenuOpen(false);
                     setScreen('home');
                   }}
-                  title="Return to Opening Screen"
+                  title="Return to Arena Lobby"
                 >
+                  <ArenaEmblem arena={activeArenaId} />
                   <span className="brand-title">Wizard Chess</span>
-                  <span className="brand-sub">Menu</span>
+                  <span className="brand-sub">Lobby</span>
                 </button>
               )}
 
-              <div className="status-pill" id="status-pill" ref={statusPillRef}>
-                <span
-                  className={`turn-dot ${snapshot?.turn === 'b' ? 'black' : ''}`}
-                  id="turn-dot"
-                ></span>
-                <span id="turn-text">{turnStatusLabel}</span>
-                <span className="mode-badge" id="mode-badge">
-                  {snapshot?.playMode === 'local'
-                    ? 'Local 2P'
-                    : `vs AI (${(snapshot?.difficulty || 'club').toUpperCase()})`}
-                </span>
+              <div className={`status-pill ${snapshot?.inCheck && !snapshot?.isGameOver ? 'in-check' : ''}`} id="status-pill" ref={statusPillRef}>
+                <div className="status-main-group">
+                  <span
+                    className={`turn-dot ${snapshot?.turn === 'b' ? 'black' : ''}`}
+                    id="turn-dot"
+                  ></span>
+                  <span id="turn-text">{turnStatusLabel}</span>
+                  <span className="mode-badge" id="mode-badge">
+                    {snapshot?.playMode === 'local'
+                      ? '2P'
+                      : `${(snapshot?.difficulty || 'club').toUpperCase()}`}
+                  </span>
+                </div>
 
                 <div className="status-clock-overlay" id="chess-clock-overlay" aria-label="Digital Chess Clock">
                   <div className={whiteClockClass} id="clock-white" title="White Clock">
@@ -762,7 +1017,7 @@ export default function App() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="clock-popover-header">
-                    <span className="clock-popover-title">Chess Clock</span>
+                    <span className="clock-popover-title">Match Clock</span>
                     <span className="clock-popover-sub">
                       {CLOCK_PRESET_CONFIG[snapshot?.clockPreset || 'blitz'].label} •{' '}
                       {snapshot?.clockDirection === 'up' ? 'Count Up' : 'Count Down'}
@@ -846,8 +1101,9 @@ export default function App() {
               aria-hidden="true"
             ></div>
 
+            {/* UNIFIED BOTTOM ARCHITECTURAL COMMAND DOCK (Desktop) / SLIDE-UP SHEET (Mobile) */}
             <div
-              className={`hud-group ${mobileSheetOpen ? 'mobile-sheet-open' : ''}`}
+              className={`hud-group command-dock ${mobileSheetOpen ? 'mobile-sheet-open' : ''}`}
               id="hud-right"
             >
               <div
@@ -859,7 +1115,7 @@ export default function App() {
               </div>
 
               <div className="mobile-sheet-header">
-                <span className="mobile-sheet-title">Game Controls</span>
+                <span className="mobile-sheet-title">Command Deck</span>
                 <button
                   type="button"
                   className="mobile-sheet-close"
@@ -881,7 +1137,8 @@ export default function App() {
                 }}
                 title="Undo Last Move"
               >
-                Undo
+                <HudIcon name="undo" />
+                <span>Undo</span>
               </button>
 
               {snapshot?.canClaimDraw && !snapshot.isGameOver && (
@@ -895,7 +1152,8 @@ export default function App() {
                   }}
                   title={snapshot.claimReason || 'Claim Draw'}
                 >
-                  Claim Draw
+                  <HudIcon name="draw" />
+                  <span>Claim Draw</span>
                 </button>
               )}
 
@@ -910,7 +1168,8 @@ export default function App() {
                   }}
                   title="Resign current game"
                 >
-                  Resign
+                  <HudIcon name="resign" />
+                  <span>Resign</span>
                 </button>
               )}
 
@@ -925,18 +1184,25 @@ export default function App() {
                 }}
                 title="Start a Fresh Match"
               >
-                New Game
+                <HudIcon name="reset" />
+                <span>New Game</span>
               </button>
 
+              <span className="hud-divider" aria-hidden="true"></span>
+
               {!show2DBoard && (
-                <div className="camera-menu-wrap">
+                <div className="camera-menu-wrap" ref={cameraMenuRef}>
                   <button
                     type="button"
                     className={`hud-btn ${cameraMenuOpen ? 'active' : ''}`}
                     id="btn-camera-menu"
-                    onClick={() => setCameraMenuOpen((prev) => !prev)}
+                    onClick={() => {
+                      setClockMenuOpen(false);
+                      setCameraMenuOpen((prev) => !prev);
+                    }}
                   >
-                    Camera Views ▾
+                    <HudIcon name="camera" />
+                    <span>Camera ▾</span>
                   </button>
                   {cameraMenuOpen && (
                     <div className="camera-popover" role="menu" aria-label="Camera Presets">
@@ -945,7 +1211,7 @@ export default function App() {
                         ['opponent', 'Opponent View'],
                         ['top', 'Overhead View'],
                         ['side', 'Side Profile'],
-                        ['wide', 'Cathedral Wide'],
+                        ['wide', ARENA_CATALOG[activeArenaId].wideCameraLabel],
                         ['reset', 'Reset Camera'],
                       ].map(([preset, label]) => (
                         <button
@@ -969,11 +1235,26 @@ export default function App() {
               <button
                 type="button"
                 className="hud-btn"
+                id="btn-arena-toggle"
+                onClick={() => {
+                  handleSwitchArenaLive();
+                  setMobileSheetOpen(false);
+                }}
+                title="Switch Arena World & Piece Skin (Gothic Cathedral / Robotics Workcell)"
+              >
+                <HudIcon name="arena" />
+                <span>{ARENA_CATALOG[activeArenaId].shortName}</span>
+              </button>
+
+              <button
+                type="button"
+                className="hud-btn"
                 id="btn-sound-toggle"
                 onClick={() => controllerRef.current?.setSoundMuted(!(snapshot?.soundMuted ?? false))}
                 title={snapshot?.soundMuted ? 'Unmute Sound Effects' : 'Mute Sound Effects'}
               >
-                {snapshot?.soundMuted ? 'Muted' : 'Sound On'}
+                <HudIcon name={snapshot?.soundMuted ? 'soundOff' : 'soundOn'} />
+                <span>{snapshot?.soundMuted ? 'Muted' : 'Audio'}</span>
               </button>
 
               <button
@@ -989,10 +1270,13 @@ export default function App() {
                   setRendererPref(nextPref);
                   setMobileSheetOpen(false);
                 }}
-                title="Switch between 3D Cathedral and Classic 2D Board"
+                title="Switch between 3D Arena and Classic 2D Board"
               >
-                {show2DBoard ? '3D View' : '2D Board'}
+                <HudIcon name="view" />
+                <span>{show2DBoard ? '3D View' : '2D View'}</span>
               </button>
+
+              <span className="hud-divider" aria-hidden="true"></span>
 
               <button
                 type="button"
@@ -1003,7 +1287,8 @@ export default function App() {
                   setActiveModal('settings');
                 }}
               >
-                Settings
+                <HudIcon name="settings" />
+                <span>Settings</span>
               </button>
 
               <button
@@ -1016,7 +1301,8 @@ export default function App() {
                   setActiveModal('history');
                 }}
               >
-                History
+                <HudIcon name="history" />
+                <span>Archive</span>
               </button>
 
               <button
@@ -1029,7 +1315,8 @@ export default function App() {
                 }}
                 title="Toggle HUD visibility (Shortcut: H)"
               >
-                {uiHidden ? 'Show UI [H]' : 'Hide UI [H]'}
+                <HudIcon name="hide" />
+                <span>{uiHidden ? 'Show [H]' : 'Hide [H]'}</span>
               </button>
 
               <PWAInstallButton compact />
@@ -1044,7 +1331,7 @@ export default function App() {
                     requestMcpDisplayMode(nextMode);
                   }}
                 >
-                  {mcpDisplayMode === 'inline' ? 'Expand Fullscreen' : 'Compact View'}
+                  {mcpDisplayMode === 'inline' ? 'Expand' : 'Compact'}
                 </button>
               )}
             </div>
@@ -1109,7 +1396,7 @@ export default function App() {
 
               <div className="move-history-list" id="move-history-list" ref={historyListRef} role="log">
                 {moveRows.length === 0 ? (
-                  <div className="move-history-empty">No moves played yet</div>
+                  <div className="move-history-empty">Awaiting opening move</div>
                 ) : (
                   moveRows.map((row) => (
                     <div key={row.num} className="move-history-row">
@@ -1187,6 +1474,30 @@ export default function App() {
                 </div>
               )}
 
+              {!snapshot?.isGameOver && !snapshot?.isReplayMode && (
+                <form
+                  id="move-notation-form"
+                  className="move-notation-form"
+                  onSubmit={handleSubmitNotationMove}
+                >
+                  <input
+                    id="input-move-notation"
+                    type="text"
+                    className={`move-notation-input ${moveNotationError ? 'invalid' : ''}`}
+                    value={moveNotationInput}
+                    onChange={(e) => {
+                      setMoveNotationInput(e.target.value);
+                      if (moveNotationError) setMoveNotationError(false);
+                    }}
+                    placeholder="Move: e4, Nf3, e2e4"
+                    aria-label="Enter move in SAN or coordinate notation"
+                  />
+                  <button type="submit" className="replay-step-btn" id="btn-submit-notation">
+                    Send
+                  </button>
+                </form>
+              )}
+
               {snapshot?.isGameOver && (
                 <div className="move-history-result" id="move-history-result">
                   {snapshot.result} • {snapshot.termination}
@@ -1195,16 +1506,32 @@ export default function App() {
             </div>
           </aside>
 
-          {/* BOTTOM HUD */}
+          {/* BOTTOM TELEMETRY STRIP (Controls Hint & Captured Material) */}
           <div id="hud-bottom">
             <div className="hint-pill" id="controls-hint">
-              <strong>Controls:</strong> Click Piece to Move • Drag: Orbit • Right-Drag: Pan • Scroll: Zoom • WASD: Fly • H: Hide UI
+              <strong>Controls:</strong> Click Piece • Drag Orbit • Right-Drag Pan • Scroll Zoom • WASD Fly • H Hide UI
             </div>
 
-            {(whiteCapturedGlyphs || blackCapturedGlyphs) && (
+            {(capturedSummary.whiteGlyphs || capturedSummary.blackGlyphs) && (
               <div className="captured-pill" id="captured-tray">
-                {whiteCapturedGlyphs && <span>White took: {whiteCapturedGlyphs}</span>}
-                {blackCapturedGlyphs && <span>Black took: {blackCapturedGlyphs}</span>}
+                {capturedSummary.whiteGlyphs && (
+                  <span className="captured-side">
+                    <span className="captured-lbl">White</span>
+                    <span className="captured-glyphs">{capturedSummary.whiteGlyphs}</span>
+                    {capturedSummary.whiteLead > 0 && (
+                      <span className="captured-adv">+{capturedSummary.whiteLead}</span>
+                    )}
+                  </span>
+                )}
+                {capturedSummary.blackGlyphs && (
+                  <span className="captured-side">
+                    <span className="captured-lbl">Black</span>
+                    <span className="captured-glyphs">{capturedSummary.blackGlyphs}</span>
+                    {capturedSummary.blackLead > 0 && (
+                      <span className="captured-adv">+{capturedSummary.blackLead}</span>
+                    )}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -1216,7 +1543,7 @@ export default function App() {
         <div className="modal-backdrop open" role="dialog" aria-modal="true" aria-label="Choose Pawn Promotion">
           <div className="sanctum-modal narrow">
             <div className="sanctum-modal-header">
-              <h3>Promote Pawn</h3>
+              <h3>Promote Piece</h3>
               <button
                 type="button"
                 className="modal-close-btn"
@@ -1258,7 +1585,9 @@ export default function App() {
         aria-live="polite"
       >
         <div className="checkmate-banner">
-          <div className="checkmate-ornament">✦ &nbsp; Sanctum Judgment &nbsp; ✦</div>
+          <div className="checkmate-ornament">
+            ✦ &nbsp; {activeArenaId === 'robotics' ? 'Workcell Match Complete' : 'Sanctum Judgment'} &nbsp; ✦
+          </div>
           <div className="checkmate-crown" id="checkmate-crown">
             {snapshot?.winner === 'b' ? '♚' : snapshot?.winner === 'w' ? '♔' : '⚖'}
           </div>
@@ -1330,7 +1659,7 @@ export default function App() {
         <div className="modal-backdrop open" role="dialog" aria-modal="true" aria-label="Game Settings">
           <div className="sanctum-modal">
             <div className="sanctum-modal-header">
-              <h3>Sanctum Settings</h3>
+              <h3>Arena &amp; Game Settings</h3>
               <button
                 type="button"
                 className="modal-close-btn"
@@ -1342,6 +1671,22 @@ export default function App() {
             </div>
 
             <div className="modal-form-grid">
+              <div className="setup-field">
+                <label className="setup-label">3D Arena World</label>
+                <div className="segmented-row">
+                  {(['cathedral', 'robotics'] as ArenaId[]).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`seg-btn ${draftArena === id ? 'active' : ''}`}
+                      onClick={() => setDraftArena(id)}
+                    >
+                      {ARENA_CATALOG[id].name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="setup-field">
                 <label className="setup-label">Mode</label>
                 <div className="segmented-row">
@@ -1418,7 +1763,7 @@ export default function App() {
                     className={`seg-btn ${draftRenderer === 'auto' ? 'active' : ''}`}
                     onClick={() => setDraftRenderer('auto')}
                   >
-                    3D Cathedral (WebGL)
+                    3D Arena (WebGL)
                   </button>
                   <button
                     type="button"
@@ -1456,7 +1801,7 @@ export default function App() {
         <div className="modal-backdrop open" role="dialog" aria-modal="true" aria-label="Completed Games Archive">
           <div className="sanctum-modal">
             <div className="sanctum-modal-header">
-              <h3>Saved Game History</h3>
+              <h3>Saved Game Archive</h3>
               <button
                 type="button"
                 className="modal-close-btn"

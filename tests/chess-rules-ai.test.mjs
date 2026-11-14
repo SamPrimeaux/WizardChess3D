@@ -132,3 +132,106 @@ test('AI finds legal forcing capture/mate and respects abort cancellation', () =
   donePos.move('Qxf7#');
   assert.equal(searchBestMove(donePos.fen(), 2), null);
 });
+
+test('WizardChessRules getStatus/getPgn do not recurse and handle full game transitions', async () => {
+  const { createServer } = await import('vite');
+  const vite = await createServer({
+    server: { middlewareMode: true },
+    appType: 'custom',
+    logLevel: 'silent',
+  });
+
+  try {
+    const { WizardChessRules } = await vite.ssrLoadModule('/src/engine/chessRules.ts');
+    const rules = new WizardChessRules();
+
+    // 1. e4 e5 (coordinates: e2=(6,4)->e4=(4,4), e7=(1,4)->e5=(3,4))
+    const m1 = rules.executeMove(6, 4, 4, 4);
+    assert.ok(m1);
+    assert.equal(m1.move.san, 'e4');
+    assert.equal(m1.pgn, '1. e4');
+    assert.equal(rules.getStatus().isGameOver, false);
+
+    const m2 = rules.executeMove(1, 4, 3, 4);
+    assert.ok(m2);
+    assert.equal(m2.move.san, 'e5');
+    assert.equal(m2.pgn, '1. e4 e5');
+    assert.equal(rules.getStatus().pgn, '1. e4 e5');
+
+    // Undo and re-play
+    const undone = rules.undoLastMove();
+    assert.equal(undone?.san, 'e5');
+    assert.equal(rules.getPgn(), '1. e4');
+
+    // Fool's mate via algebraic execution
+    rules.reset();
+    rules.executeMoveByAlgebraic('f3');
+    rules.executeMoveByAlgebraic('e5');
+    rules.executeMoveByAlgebraic('g4');
+    const mateRes = rules.executeMoveByAlgebraic('Qh4#');
+    assert.ok(mateRes);
+    const mateStatus = rules.getStatus();
+    assert.equal(mateStatus.isCheckmate, true);
+    assert.equal(mateStatus.isGameOver, true);
+    assert.equal(mateStatus.winner, 'b');
+    assert.equal(mateStatus.result, '0-1');
+    assert.ok(mateStatus.pgn.endsWith('0-1'));
+
+    // Resignation result & PGN tag
+    rules.reset();
+    rules.executeMoveByAlgebraic('d4');
+    const resignStatus = rules.resign('w');
+    assert.equal(resignStatus.isGameOver, true);
+    assert.equal(resignStatus.winner, 'b');
+    assert.equal(resignStatus.termination, 'Resignation');
+    assert.equal(resignStatus.pgn, '1. d4 0-1');
+
+    // Claimable threefold repetition draw
+    rules.reset();
+    for (const san of ['Nf3', 'Nf6', 'Ng1', 'Ng8', 'Nf3', 'Nf6', 'Ng1', 'Ng8']) {
+      assert.ok(rules.executeMoveByAlgebraic(san));
+    }
+    const repStatus = rules.getStatus();
+    assert.equal(repStatus.canClaimDraw, true);
+    assert.equal(repStatus.claimReason, 'Threefold Repetition');
+    const drawClaimed = rules.claimDraw();
+    assert.ok(drawClaimed);
+    assert.equal(drawClaimed.isGameOver, true);
+    assert.equal(drawClaimed.result, '1/2-1/2');
+    assert.ok(drawClaimed.pgn.endsWith('1/2-1/2'));
+
+    // Direct SAN and coordinate/UCI move resolution (supports keyboard + robotic arm command inputs)
+    rules.reset();
+    const coordMove = rules.resolveMoveNotation('e2e4');
+    assert.deepEqual(coordMove, { fromR: 6, fromC: 4, toR: 4, toC: 4, promotion: undefined });
+    rules.executeMove(coordMove.fromR, coordMove.fromC, coordMove.toR, coordMove.toC);
+
+    const sanMove = rules.resolveMoveNotation('e5');
+    assert.deepEqual(sanMove, { fromR: 1, fromC: 4, toR: 3, toC: 4, promotion: undefined });
+    assert.equal(rules.resolveMoveNotation('Ke8'), null);
+
+    // Controller multi-arena switching & direct notation execution
+    const { createFallbackChessController } = await vite.ssrLoadModule('/src/engine/fallbackEngine.ts');
+    const ctrl = createFallbackChessController({
+      initialSettings: { arenaId: 'robotics', playMode: 'local' },
+    });
+    assert.equal(ctrl.getSnapshot().arenaId, 'robotics');
+    assert.equal(ctrl.submitMoveNotation('d2-d4'), true);
+    assert.equal(ctrl.submitMoveNotation('Nf6'), true);
+    assert.equal(ctrl.getSnapshot().moves.length, 2);
+    ctrl.setArena('cathedral');
+    assert.equal(ctrl.getSnapshot().arenaId, 'cathedral');
+    assert.equal(ctrl.getSnapshot().moves.length, 2);
+    ctrl.destroy();
+
+    const { soundFx } = await vite.ssrLoadModule('/src/engine/soundFx.ts');
+    soundFx.setArena('robotics');
+    assert.equal(soundFx.getArena(), 'robotics');
+    soundFx.setArena('cathedral');
+    assert.equal(soundFx.getArena(), 'cathedral');
+    soundFx.play('select');
+  } finally {
+    await vite.close();
+  }
+});
+

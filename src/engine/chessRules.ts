@@ -250,7 +250,16 @@ export class WizardChessRules {
     return this.chess.fen();
   }
 
-  getPgn(): string {
+  private resolveResultTag(): '1-0' | '0-1' | '1/2-1/2' | '*' {
+    if (this.manualOverride) return this.manualOverride.result;
+    if (this.chess.isCheckmate()) return this.chess.turn() === 'w' ? '0-1' : '1-0';
+    if (this.chess.isStalemate() || this.chess.isInsufficientMaterial()) return '1/2-1/2';
+    const halfMoveClock = parseInt(this.chess.fen().split(' ')[4] || '0', 10) || 0;
+    if (halfMoveClock >= 150) return '1/2-1/2';
+    return '*';
+  }
+
+  getPgn(resultOverride?: '1-0' | '0-1' | '1/2-1/2' | '*'): string {
     if (this.recordedMoves.length === 0) return '';
     const tokens: string[] = [];
     let idx = 0;
@@ -270,9 +279,9 @@ export class WizardChessRules {
         idx += 1;
       }
     }
-    const st = this.getStatus();
-    if (st.result !== '*') {
-      tokens.push(st.result);
+    const result = resultOverride ?? this.resolveResultTag();
+    if (result !== '*') {
+      tokens.push(result);
     }
     return tokens.join(' ');
   }
@@ -408,6 +417,47 @@ export class WizardChessRules {
         rookMove,
         fen: fenAfter,
         pgn: this.getPgn(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  resolveMoveNotation(
+    notation: string
+  ): { fromR: number; fromC: number; toR: number; toC: number; promotion?: EnginePromoChar } | null {
+    if (this.getStatus().isGameOver) return null;
+    const trimmed = (notation || '').trim();
+    if (!trimmed) return null;
+
+    const probe = new Chess(this.chess.fen());
+    const cleanedCoord = trimmed.replace(/[-\s]/g, '');
+    const coordMatch = /^([a-h][1-8])([a-h][1-8])([qrbnQRBN])?$/.exec(cleanedCoord);
+
+    try {
+      let matched: Move;
+      if (coordMatch) {
+        const from = coordMatch[1] as Square;
+        const to = coordMatch[2] as Square;
+        const fromRc = squareToRc(from);
+        const toRc = squareToRc(to);
+        const needPromo = this.needsPromotionChoice(fromRc.r, fromRc.c, toRc.r, toRc.c);
+        matched = probe.move({
+          from,
+          to,
+          promotion: needPromo ? normalizePromotionType(coordMatch[3]) : undefined,
+        });
+      } else {
+        matched = probe.move(trimmed);
+      }
+      const fromRc = squareToRc(matched.from);
+      const toRc = squareToRc(matched.to);
+      return {
+        fromR: fromRc.r,
+        fromC: fromRc.c,
+        toR: toRc.r,
+        toC: toRc.c,
+        promotion: matched.promotion ? (matched.promotion as EnginePromoChar) : undefined,
       };
     } catch {
       return null;
@@ -573,7 +623,7 @@ export class WizardChessRules {
     if (this.manualOverride) {
       return {
         fen,
-        pgn: this.getPgn(),
+        pgn: this.getPgn(this.manualOverride.result),
         turn,
         moveNumber,
         halfMoveClock,
@@ -594,9 +644,10 @@ export class WizardChessRules {
 
     if (isCheckmate) {
       const winner: Color = turn === 'w' ? 'b' : 'w';
+      const result = winner === 'w' ? '1-0' : '0-1';
       return {
         fen,
-        pgn: this.getPgn(),
+        pgn: this.getPgn(result),
         turn,
         moveNumber,
         halfMoveClock,
@@ -609,7 +660,7 @@ export class WizardChessRules {
         canClaimDraw: false,
         claimReason: null,
         isGameOver: true,
-        result: winner === 'w' ? '1-0' : '0-1',
+        result,
         winner,
         termination: 'Checkmate',
       };
@@ -618,7 +669,7 @@ export class WizardChessRules {
     if (isStalemate || isInsufficientMaterial) {
       return {
         fen,
-        pgn: this.getPgn(),
+        pgn: this.getPgn('1/2-1/2'),
         turn,
         moveNumber,
         halfMoveClock,
@@ -641,7 +692,7 @@ export class WizardChessRules {
     if (halfMoveClock >= 150) {
       return {
         fen,
-        pgn: this.getPgn(),
+        pgn: this.getPgn('1/2-1/2'),
         turn,
         moveNumber,
         halfMoveClock,
@@ -663,7 +714,7 @@ export class WizardChessRules {
     // Threefold repetition and 50-move rule can be claimed by the player (or auto-drawn via Claim Draw)
     return {
       fen,
-      pgn: this.getPgn(),
+      pgn: this.getPgn('*'),
       turn,
       moveNumber,
       halfMoveClock,
