@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FrankaOpponent } from './frankaOpponent';
 
 export type ArenaId = 'cathedral' | 'robotics';
 
@@ -22,7 +23,7 @@ export const ARENA_CATALOG: Record<ArenaId, ArenaMetadata> = {
     id: 'robotics',
     name: 'Robotics Workcell',
     shortName: 'Robotics Lab',
-    subtitle: 'EVA astronaut chess crew on an optical metrology table facing a 6-DOF industrial robotic arm.',
+    subtitle: 'EVA astronaut chess crew on an optical metrology table facing an articulated Franka Panda arm.',
     wideCameraLabel: 'Workcell Wide',
   },
 };
@@ -35,6 +36,7 @@ export interface RoboticsArenaUpdateState {
   inCheck: boolean;
   reducedMotion: boolean;
   targetCoord?: { r: number; c: number } | null;
+  lastMove?: { ply: number; fromSq: string; toSq: string; color: 'w' | 'b' } | null;
 }
 
 export interface RoboticsLabArenaInstance {
@@ -827,6 +829,22 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
 
   group.add(robotRigRoot);
 
+  // Load the source-preserving seven-axis Franka Panda. Keep the procedural
+  // arm visible as a fallback until the GLB has loaded and passed rig checks.
+  const frankaOpponent = new FrankaOpponent(group, (square) => {
+    const file = 'abcdefgh'.indexOf(square[0] || '');
+    const rank = Number(square[1]);
+    const row = 8 - rank;
+    if (file < 0 || row < 0 || row > 7) return new THREE.Vector3(0, 0.74, -2.28);
+    return new THREE.Vector3((file - 3.5) * BOARD_SQ_SIZE, 0.74, (row - 3.5) * BOARD_SQ_SIZE);
+  });
+  let lastFrankaMoveKey = '';
+  void frankaOpponent.load().then(() => {
+    robotRigRoot.visible = false;
+  }).catch((error: unknown) => {
+    console.warn('[MeauxGames] Franka asset unavailable; retaining procedural workcell arm.', error);
+  });
+
   // =========================================================================
   // 4. Modular T-Slot Gantry Frame & Cleanroom Overhead Light Rig
   // =========================================================================
@@ -1065,6 +1083,19 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
   function update(dt: number, state: RoboticsArenaUpdateState) {
     simTime += dt;
 
+    // Only a committed Black move triggers the visual opponent gesture.
+    // Chess legality and state remain owned by the existing chess engine.
+    if (!state.lastMove) {
+      lastFrankaMoveKey = '';
+    } else if (state.lastMove.color === 'b') {
+      const moveKey = state.lastMove.ply + ':' + state.lastMove.fromSq + ':' + state.lastMove.toSq;
+      if (moveKey !== lastFrankaMoveKey) {
+        lastFrankaMoveKey = moveKey;
+        void frankaOpponent.playMove(state.lastMove.fromSq, state.lastMove.toSq);
+      }
+    }
+    frankaOpponent.update(performance.now());
+
     // Update status LEDs (White = crisp ivory/cyan, Black = cobalt blue, Check/Mate = crimson)
     if (state.isGameOver || state.inCheck) {
       tableStatusLedMat.color.setHex(0xef4444);
@@ -1129,6 +1160,7 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
   }
 
   function dispose() {
+    frankaOpponent.dispose();
     for (const g of disposables.geometries) g.dispose();
     for (const m of disposables.materials) m.dispose();
     for (const t of disposables.textures) t.dispose();

@@ -4683,6 +4683,7 @@ export function initWizardChess(options = {}) {
           inCheck: status.inCheck,
           reducedMotion: isReducedMotionActive(),
           targetCoord: latest ? { r: latest.toR, c: latest.toC } : null,
+          lastMove: latest ? { ply: latest.ply, fromSq: latest.fromSq, toSq: latest.toSq, color: latest.color } : null,
         });
         if (roboticsMotePoints.visible) {
           const posAttr = roboticsMotePoints.geometry.getAttribute('position');
