@@ -829,6 +829,22 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
 
   group.add(robotRigRoot);
 
+  // Load the source-preserving seven-axis Franka Panda. Keep the procedural
+  // arm visible as a fallback until the GLB has loaded and passed rig checks.
+  const frankaOpponent = new FrankaOpponent(group, (square) => {
+    const file = 'abcdefgh'.indexOf(square[0] || '');
+    const rank = Number(square[1]);
+    const row = 8 - rank;
+    if (file < 0 || row < 0 || row > 7) return new THREE.Vector3(0, 0.74, -2.28);
+    return new THREE.Vector3((file - 3.5) * BOARD_SQ_SIZE, 0.74, (row - 3.5) * BOARD_SQ_SIZE);
+  });
+  let lastFrankaMoveKey = '';
+  void frankaOpponent.load().then(() => {
+    robotRigRoot.visible = false;
+  }).catch((error: unknown) => {
+    console.warn('[MeauxGames] Franka asset unavailable; retaining procedural workcell arm.', error);
+  });
+
   // =========================================================================
   // 4. Modular T-Slot Gantry Frame & Cleanroom Overhead Light Rig
   // =========================================================================
