@@ -72,7 +72,7 @@ const ARENA_CARD_META: Record<ArenaId, { tag: string; crewLabel: string }> = {
     crewLabel: 'Royal Stone Sanctum',
   },
   robotics: {
-    tag: 'EVA Astronauts & 6-DOF Arm',
+    tag: 'EVA Astronauts & Franka Panda',
     crewLabel: 'Orbital Telemetry Bay',
   },
 };
