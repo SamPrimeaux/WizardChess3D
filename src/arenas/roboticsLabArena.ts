@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FrankaOpponent } from './frankaOpponent';
 
 export type ArenaId = 'cathedral' | 'robotics';
 
