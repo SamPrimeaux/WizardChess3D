@@ -23,7 +23,7 @@ export const ARENA_CATALOG: Record<ArenaId, ArenaMetadata> = {
     id: 'robotics',
     name: 'Robotics Workcell',
     shortName: 'Robotics Lab',
-    subtitle: 'EVA astronaut chess crew on an optical metrology table facing a 6-DOF industrial robotic arm.',
+    subtitle: 'EVA astronaut chess crew on an optical metrology table facing an articulated Franka Panda arm.',
     wideCameraLabel: 'Workcell Wide',
   },
 };
