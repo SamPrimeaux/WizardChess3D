@@ -108,12 +108,26 @@ function safeGetStorage(): Storage | null {
   return null;
 }
 
+function detectDefaultGraphicsQuality(): GraphicsQuality {
+  try {
+    if (typeof window !== 'undefined') {
+      const isCoarse = window.matchMedia?.('(pointer: coarse)')?.matches;
+      const isCompact = Math.min(window.innerWidth, window.innerHeight) <= 768;
+      if (isCoarse || isCompact) return 'medium';
+    }
+  } catch {
+    // Fallback to high
+  }
+  return 'high';
+}
+
 export function loadSettings(): GameSettings {
   const storage = safeGetStorage();
-  if (!storage) return { ...DEFAULT_SETTINGS };
+  const fallbackQuality = detectDefaultGraphicsQuality();
+  if (!storage) return { ...DEFAULT_SETTINGS, graphicsQuality: fallbackQuality };
   try {
     const raw = storage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
+    if (!raw) return { ...DEFAULT_SETTINGS, graphicsQuality: fallbackQuality };
     const parsed = JSON.parse(raw) as Partial<GameSettings>;
     return {
       ...DEFAULT_SETTINGS,

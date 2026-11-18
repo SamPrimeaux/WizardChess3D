@@ -1,0 +1,127 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "CanvasEditor.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "page": "dash",
+      "title": "1 · Canvas editor",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "CanvasLibrary.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "page": "dash",
+      "title": "2 · Library (curate)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "Checkout.dc.html": {
+      "h": 900,
+      "title": "2 · Start trial (checkout)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 2200,
+      "title": "1 · Choose a plan",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Onboarding.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "title": "4 · Workspace setup",
+      "w": 1440,
+      "x": 4560,
+      "y": 0
+    },
+    "SetupGoals.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "title": "3 · What can we help you do",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "StoreToLibrary.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "page": "dash",
+      "title": "3 · Save to library",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "StyleSpec.dc.html": {
+      "h": 1700,
+      "title": "Style spec · clean company b/w",
+      "w": 1440,
+      "x": 7600,
+      "y": 0
+    },
+    "WelcomeHome.dc.html": {
+      "h": 1400,
+      "title": "5 · First-run home",
+      "w": 1440,
+      "x": 6080,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-10T19:30:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "dashtitle": {
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "dash",
+      "text": "Dashboard: canvas, library, save",
+      "w": 240,
+      "x": 0,
+      "y": -320
+    },
+    "flowtitle": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Onboarding & offers: baseline flow",
+      "w": 240,
+      "x": 0,
+      "y": -320
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Checkout.dc.html",
+    "SetupGoals.dc.html",
+    "Onboarding.dc.html",
+    "WelcomeHome.dc.html",
+    "StyleSpec.dc.html",
+    "CanvasEditor.dc.html",
+    "CanvasLibrary.dc.html",
+    "StoreToLibrary.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "onb",
+      "name": "Onboarding and offers"
+    },
+    {
+      "id": "dash",
+      "name": "Dashboard canvas"
+    }
+  ],
+  "title": "Inner Animal Media: Onboarding & Offers"
+}

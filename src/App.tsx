@@ -37,6 +37,11 @@ import {
   notifyEntertainmentHostReady,
 } from './integrations/entertainment/hostAdapter';
 import {
+  buildD1UpsertSql,
+  D1_CHESS_SCHEMA_SQL,
+  toD1GameBundle,
+} from './integrations/entertainment/d1Schema';
+import {
   getInitialMcpDisplayMode,
   initMcpAppsBridge,
   isMcpHostEmbedded,
@@ -242,13 +247,19 @@ export default function App() {
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [clockMenuOpen, setClockMenuOpen] = useState(false);
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false);
+  const [mobileCamIdx, setMobileCamIdx] = useState(0);
   const [historyCollapsed, setHistoryCollapsed] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth <= 900 : false
+  );
+  const [isTouchUi, setIsTouchUi] = useState(() =>
+    typeof window !== 'undefined'
+      ? Boolean(window.matchMedia?.('(pointer: coarse)')?.matches || navigator.maxTouchPoints > 0)
+      : false
   );
 
   const [activeModal, setActiveModal] = useState<'none' | 'settings' | 'history' | 'fenpgn'>('none');
   const [gameOverDismissedForId, setGameOverDismissedForId] = useState<string | null>(null);
-  const [copiedFeedback, setCopiedFeedback] = useState<'pgn' | 'fen' | null>(null);
+  const [copiedFeedback, setCopiedFeedback] = useState<'pgn' | 'fen' | 'd1schema' | 'd1sql' | null>(null);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [moveNotationInput, setMoveNotationInput] = useState('');
@@ -410,7 +421,12 @@ export default function App() {
     const handleResize = () => {
       if (window.innerWidth > 768) {
         setMobileSheetOpen(false);
+      } else {
+        setHistoryCollapsed(true);
       }
+      setIsTouchUi(
+        Boolean(window.matchMedia?.('(pointer: coarse)')?.matches || navigator.maxTouchPoints > 0)
+      );
     };
     window.addEventListener('keydown', handleKeyDown);
     document.addEventListener('pointerdown', handlePointerDown);
@@ -462,6 +478,9 @@ export default function App() {
       setGameOverDismissedForId(null);
       setActiveModal('none');
       setMobileSheetOpen(false);
+      if (typeof window !== 'undefined' && window.innerWidth <= 900) {
+        setHistoryCollapsed(true);
+      }
       setScreen('game');
 
       if (merged.rendererPreference !== rendererPref) {
@@ -489,6 +508,9 @@ export default function App() {
     const saved = loadActiveGame();
     if (!saved) return;
     setGameOverDismissedForId(null);
+    if (typeof window !== 'undefined' && window.innerWidth <= 900) {
+      setHistoryCollapsed(true);
+    }
     setScreen('game');
     controllerRef.current?.resumeSavedGame(saved);
   }, []);
@@ -567,12 +589,22 @@ export default function App() {
     [moveNotationInput]
   );
 
-  const handleCopyText = useCallback((kind: 'pgn' | 'fen', text: string) => {
-    if (!text) return;
-    navigator.clipboard?.writeText(text).catch(() => {});
-    setCopiedFeedback(kind);
-    window.setTimeout(() => setCopiedFeedback(null), 1500);
-  }, []);
+  const handleCopyText = useCallback(
+    (kind: 'pgn' | 'fen' | 'd1schema' | 'd1sql', text: string) => {
+      if (!text) return;
+      navigator.clipboard?.writeText(text).catch(() => {});
+      setCopiedFeedback(kind);
+      window.setTimeout(() => setCopiedFeedback(null), 1500);
+    },
+    []
+  );
+
+  const handleCycleMobileCamera = useCallback(() => {
+    const presets: ('player' | 'top' | 'side' | 'wide')[] = ['player', 'top', 'side', 'wide'];
+    const nextIdx = (mobileCamIdx + 1) % presets.length;
+    setMobileCamIdx(nextIdx);
+    controllerRef.current?.setCameraPreset(presets[nextIdx]);
+  }, [mobileCamIdx]);
 
   const handleImportPosition = useCallback(() => {
     const ctrl = controllerRef.current;
@@ -610,6 +642,75 @@ export default function App() {
     }
     return rows;
   }, [snapshot?.moves]);
+
+  const latestMovePly = snapshot?.moves.length ?? 0;
+  const highlightedMovePly =
+    snapshot?.replayPly === 0
+      ? null
+      : snapshot?.selectedHistoryPly ?? (latestMovePly > 0 ? latestMovePly : null);
+
+  const renderMoveHistoryButton = useCallback(
+    (move: RecordedMove | undefined) => {
+      if (!move) {
+        return <span className="move-san placeholder">...</span>;
+      }
+      const isHighlightedOnBoard = highlightedMovePly === move.ply;
+      const isLatestMove = latestMovePly > 0 && move.ply === latestMovePly;
+      const tipParts = [`${move.fromSq}→${move.toSq}`];
+      if (isHighlightedOnBoard) tipParts.push('Highlighted on 3D board');
+      if (isLatestMove) tipParts.push('Latest move');
+      tipParts.push('Click to highlight, double-click to inspect');
+
+      return (
+        <button
+          type="button"
+          className={`move-san-btn ${isHighlightedOnBoard ? 'selected' : ''} ${
+            isLatestMove ? 'latest' : ''
+          }`}
+          aria-pressed={isHighlightedOnBoard}
+          aria-current={isLatestMove ? 'step' : undefined}
+          data-ply={move.ply}
+          data-board-highlighted={isHighlightedOnBoard ? 'true' : undefined}
+          data-latest={isLatestMove ? 'true' : undefined}
+          onClick={() => controllerRef.current?.highlightHistoryMove(move.ply)}
+          onDoubleClick={() => controllerRef.current?.enterReplayAtPly(move.ply)}
+          title={tipParts.join(' • ')}
+        >
+          <span className="move-san-text">{move.san}</span>
+          {(isHighlightedOnBoard || isLatestMove) && (
+            <span className="move-san-indicators" aria-hidden="true">
+              {isHighlightedOnBoard && (
+                <svg className="move-board-glyph" viewBox="0 0 12 12" fill="none">
+                  <rect
+                    x="1.5"
+                    y="4.5"
+                    width="5.5"
+                    height="5.5"
+                    rx="1"
+                    stroke="#4ea8de"
+                    strokeWidth="1.4"
+                    fill="rgba(78, 168, 222, 0.28)"
+                  />
+                  <rect
+                    x="5"
+                    y="1.5"
+                    width="5.5"
+                    height="5.5"
+                    rx="1"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    fill="rgba(245, 215, 110, 0.34)"
+                  />
+                </svg>
+              )}
+              {isLatestMove && <span className="move-latest-dot" />}
+            </span>
+          )}
+        </button>
+      );
+    },
+    [highlightedMovePly, latestMovePly]
+  );
 
   const turnStatusLabel = useMemo(() => {
     if (!snapshot) return visualArena === 'robotics' ? 'Calibrating Workcell...' : 'Summoning Sanctum...';
@@ -1000,8 +1101,11 @@ export default function App() {
                       setClockMenuOpen((prev) => !prev);
                     }}
                   >
-                    <span id="clock-mode-label">
+                    <span className="clock-mode-full" id="clock-mode-label">
                       {CLOCK_PRESET_CONFIG[snapshot?.clockPreset || 'blitz'].label}
+                    </span>
+                    <span className="clock-mode-short" aria-hidden="true">
+                      {CLOCK_PRESET_CONFIG[snapshot?.clockPreset || 'blitz'].short}
                     </span>
                     <span className="clock-dir-glyph" id="clock-dir-glyph" aria-hidden="true">
                       {snapshot?.clockDirection === 'up' ? '↑' : '↓'}
@@ -1308,6 +1412,21 @@ export default function App() {
               <button
                 type="button"
                 className="hud-btn"
+                id="btn-open-fen-pgn"
+                onClick={() => {
+                  setImportText(snapshot?.pgn || snapshot?.fen || '');
+                  setImportError(null);
+                  setMobileSheetOpen(false);
+                  setActiveModal('fenpgn');
+                }}
+                title="FEN, PGN & D1 SQLite Export"
+              >
+                <span>FEN / D1</span>
+              </button>
+
+              <button
+                type="button"
+                className="hud-btn"
                 id="btn-hide-ui"
                 onClick={() => {
                   handleToggleUI();
@@ -1394,6 +1513,41 @@ export default function App() {
                 <span>Black</span>
               </div>
 
+              {moveRows.length > 0 && (
+                <div className="move-history-legend" aria-hidden="true">
+                  <span className="legend-item legend-board">
+                    <svg className="move-board-glyph" viewBox="0 0 12 12" fill="none">
+                      <rect
+                        x="1.5"
+                        y="4.5"
+                        width="5.5"
+                        height="5.5"
+                        rx="1"
+                        stroke="#4ea8de"
+                        strokeWidth="1.4"
+                        fill="rgba(78, 168, 222, 0.28)"
+                      />
+                      <rect
+                        x="5"
+                        y="1.5"
+                        width="5.5"
+                        height="5.5"
+                        rx="1"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        fill="rgba(245, 215, 110, 0.34)"
+                      />
+                    </svg>
+                    On 3D Board
+                  </span>
+                  <span className="legend-sep">·</span>
+                  <span className="legend-item legend-latest">
+                    <span className="move-latest-dot" />
+                    Latest Move
+                  </span>
+                </div>
+              )}
+
               <div className="move-history-list" id="move-history-list" ref={historyListRef} role="log">
                 {moveRows.length === 0 ? (
                   <div className="move-history-empty">Awaiting opening move</div>
@@ -1401,37 +1555,8 @@ export default function App() {
                   moveRows.map((row) => (
                     <div key={row.num} className="move-history-row">
                       <span className="move-num">{row.num}.</span>
-                      {row.white ? (
-                        <button
-                          type="button"
-                          className={`move-san-btn ${
-                            snapshot?.selectedHistoryPly === row.white.ply ? 'selected' : ''
-                          } ${row.white.ply === snapshot?.moves.length ? 'latest' : ''}`}
-                          onClick={() => controllerRef.current?.highlightHistoryMove(row.white!.ply)}
-                          onDoubleClick={() => controllerRef.current?.enterReplayAtPly(row.white!.ply)}
-                          title={`Highlight ${row.white.fromSq}→${row.white.toSq} (Double-click to inspect position)`}
-                        >
-                          {row.white.san}
-                        </button>
-                      ) : (
-                        <span className="move-san placeholder">...</span>
-                      )}
-
-                      {row.black ? (
-                        <button
-                          type="button"
-                          className={`move-san-btn ${
-                            snapshot?.selectedHistoryPly === row.black.ply ? 'selected' : ''
-                          } ${row.black.ply === snapshot?.moves.length ? 'latest' : ''}`}
-                          onClick={() => controllerRef.current?.highlightHistoryMove(row.black!.ply)}
-                          onDoubleClick={() => controllerRef.current?.enterReplayAtPly(row.black!.ply)}
-                          title={`Highlight ${row.black.fromSq}→${row.black.toSq} (Double-click to inspect position)`}
-                        >
-                          {row.black.san}
-                        </button>
-                      ) : (
-                        <span className="move-san placeholder">...</span>
-                      )}
+                      {renderMoveHistoryButton(row.white)}
+                      {renderMoveHistoryButton(row.black)}
                     </div>
                   ))
                 )}
@@ -1506,10 +1631,93 @@ export default function App() {
             </div>
           </aside>
 
+          {/* MOBILE BOTTOM QUICK-ACTION BAR (Touch-First Dock <= 768px) */}
+          <nav
+            id="mobile-quick-bar"
+            className="mobile-quick-bar"
+            aria-label="Mobile Quick Controls"
+          >
+            <button
+              type="button"
+              id="btn-mobile-undo"
+              className="mobile-quick-btn"
+              disabled={!snapshot?.moves.length || snapshot.isReplayMode || snapshot.isAnimatingMove}
+              onClick={() => controllerRef.current?.undoMove()}
+            >
+              <HudIcon name="undo" />
+              <span>Undo</span>
+            </button>
+
+            {!show2DBoard ? (
+              <button
+                type="button"
+                id="btn-mobile-cam"
+                className="mobile-quick-btn"
+                onClick={handleCycleMobileCamera}
+              >
+                <HudIcon name="camera" />
+                <span>Cam</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                id="btn-mobile-cam"
+                className="mobile-quick-btn"
+                onClick={() => {
+                  const updated = { ...settingsState, rendererPreference: 'auto' as RendererPreference };
+                  saveSettings(updated);
+                  setSettingsState(updated);
+                  setDraftRenderer('auto');
+                  setRendererPref('auto');
+                }}
+              >
+                <HudIcon name="view" />
+                <span>3D</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              id="btn-mobile-arena"
+              className="mobile-quick-btn"
+              onClick={handleSwitchArenaLive}
+            >
+              <HudIcon name="arena" />
+              <span>{activeArenaId === 'robotics' ? 'EVA' : 'Sanctum'}</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-mobile-moves"
+              className={`mobile-quick-btn ${!historyCollapsed ? 'active' : ''}`}
+              onClick={() => setHistoryCollapsed((prev) => !prev)}
+            >
+              <HudIcon name="history" />
+              <span>Moves ({snapshot?.moves.length ?? 0})</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-mobile-deck"
+              className={`mobile-quick-btn ${mobileSheetOpen ? 'active' : ''}`}
+              onClick={() => {
+                setClockMenuOpen(false);
+                setCameraMenuOpen(false);
+                setMobileSheetOpen((prev) => !prev);
+              }}
+            >
+              <HudIcon name="settings" />
+              <span>Deck</span>
+            </button>
+          </nav>
+
           {/* BOTTOM TELEMETRY STRIP (Controls Hint & Captured Material) */}
           <div id="hud-bottom">
             <div className="hint-pill" id="controls-hint">
-              <strong>Controls:</strong> Click Piece • Drag Orbit • Right-Drag Pan • Scroll Zoom • WASD Fly • H Hide UI
+              <strong>Controls:</strong>{' '}
+              {isTouchUi
+                ? 'Tap Piece • Drag Orbit • Pinch Zoom • Two-Finger Pan'
+                : 'Click Piece • Drag Orbit • Right-Drag Pan • Scroll Zoom • WASD Fly • H Hide UI'}
             </div>
 
             {(capturedSummary.whiteGlyphs || capturedSummary.blackGlyphs) && (
@@ -1909,13 +2117,43 @@ export default function App() {
             <div className="setup-field">
               <label className="setup-label">Paste FEN or PGN to Load</label>
               <textarea
-                rows={4}
+                rows={3}
                 className="sanctum-textarea"
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
                 placeholder="Paste a FEN string or PGN notation (e.g. 1. e4 e5 2. Nf3 Nc6)..."
               />
               {importError && <div className="import-error">{importError}</div>}
+            </div>
+
+            <div className="setup-field d1-export-box">
+              <label className="setup-label">InnerAnimalMedia D1 SQLite Storage (4-Table Schema)</label>
+              <div className="d1-export-meta">
+                <span>Tables: <code>game_rooms</code>, <code>games</code>, <code>game_moves</code>, <code>game_credits</code></span>
+                <span>Piece Set: <code>{activeArenaId === 'robotics' ? 'robotics_eva_v1' : 'cathedral_stone_v1'}</code></span>
+              </div>
+              <div className="d1-export-actions">
+                <button
+                  type="button"
+                  className="hud-btn"
+                  id="btn-copy-d1-schema"
+                  onClick={() => handleCopyText('d1schema', D1_CHESS_SCHEMA_SQL)}
+                >
+                  {copiedFeedback === 'd1schema' ? 'Copied schema.sql' : 'Copy D1 schema.sql'}
+                </button>
+                <button
+                  type="button"
+                  className="hud-btn"
+                  id="btn-copy-d1-match"
+                  onClick={() => {
+                    if (!snapshot) return;
+                    const sql = buildD1UpsertSql(toD1GameBundle(snapshot));
+                    handleCopyText('d1sql', sql);
+                  }}
+                >
+                  {copiedFeedback === 'd1sql' ? 'Copied Match SQL' : 'Copy Match D1 SQL'}
+                </button>
+              </div>
             </div>
 
             <div className="modal-footer-actions">

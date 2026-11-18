@@ -1,4 +1,5 @@
 import type { GameSettings, SavedGameState } from '../../engine/storage';
+import { toD1GameBundle } from './d1Schema';
 
 export const ENTERTAINMENT_APP_ID = 'inneranimalmedia.wizard-chess-3d';
 export const ENTERTAINMENT_APP_VERSION = '1.0.0';
@@ -97,8 +98,9 @@ export function notifyEntertainmentHostReady(settings: GameSettings): Entertainm
 export function emitEntertainmentStateUpdate(state: SavedGameState | null, summary: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;
   try {
+    const d1Bundle = state ? toD1GameBundle(state) : null;
     if (window.InnerAnimalEntertainment?.emitEvent) {
-      window.InnerAnimalEntertainment.emitEvent('state-update', { state, summary });
+      window.InnerAnimalEntertainment.emitEvent('state-update', { state, summary, d1Bundle });
     }
     const host = detectEntertainmentHost();
     if (host.hostDetected && window.parent && window.parent !== window) {
@@ -107,7 +109,7 @@ export function emitEntertainmentStateUpdate(state: SavedGameState | null, summa
           type: 'iam:entertainment:state',
           packageId: ENTERTAINMENT_APP_ID,
           version: ENTERTAINMENT_APP_VERSION,
-          payload: { state, summary },
+          payload: { state, summary, d1Bundle },
         },
         '*'
       );

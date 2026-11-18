@@ -32,7 +32,8 @@
   ],
   "schemas": {
     "settings": "./schemas/settings.schema.json",
-    "saveState": "./schemas/save-state.schema.json"
+    "saveState": "./schemas/save-state.schema.json",
+    "d1Database": "./schemas/d1-chess-schema.sql"
   },
   "assets": {
     "icon": "./assets/icon-512x512.png",

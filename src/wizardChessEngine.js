@@ -65,6 +65,36 @@ export function initWizardChess(options = {}) {
     }
 
     // =========================================================================
+    // Mobile Device Profile & Responsive Camera Helpers
+    // =========================================================================
+    THREE.Cache.enabled = true;
+    const isTouchCapable =
+      typeof window !== 'undefined' &&
+      Boolean(
+        window.matchMedia?.('(pointer: coarse)')?.matches ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0
+      );
+    const isCompactViewport =
+      typeof window !== 'undefined' &&
+      Math.min(window.innerWidth || 1024, window.innerHeight || 768) <= 768;
+    const isMobileProfile = isTouchCapable || isCompactViewport;
+
+    function getResponsiveCameraFov(aspect) {
+      const baseFov = 40;
+      if (!aspect || aspect >= 1.0) return baseFov;
+      const targetHoriFovRad = THREE.MathUtils.degToRad(48);
+      const vertFovRad = 2 * Math.atan(Math.tan(targetHoriFovRad / 2) / Math.max(0.42, aspect));
+      return Math.min(62, Math.max(baseFov, THREE.MathUtils.radToDeg(vertFovRad)));
+    }
+
+    function getResponsiveDistanceScale() {
+      const aspect = (window.innerWidth || 1) / Math.max(1, window.innerHeight || 1);
+      if (aspect >= 0.95) return 1.0;
+      return Math.min(1.24, 1.0 + (0.95 - aspect) * 0.44);
+    }
+
+    // =========================================================================
     // Scene, Camera, Renderer, and Cathedral Lighting
     // =========================================================================
     const container = document.getElementById('canvas-container') || document.getElementById('viewport-container');
@@ -75,8 +105,8 @@ export function initWizardChess(options = {}) {
     let renderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        powerPreference: 'high-performance',
+        antialias: !isMobileProfile || (window.devicePixelRatio || 1) <= 1.5,
+        powerPreference: isMobileProfile ? 'default' : 'high-performance',
         preserveDrawingBuffer: isAutomatedTest
       });
     } catch (err) {
@@ -84,10 +114,11 @@ export function initWizardChess(options = {}) {
       options?.onWebGLUnavailable?.('WebGL could not initialize — switched to 2D Classic Board');
       return createFallbackChessController(options);
     }
+    renderer.domElement.style.touchAction = 'none';
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileProfile ? 1.5 : 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isMobileProfile ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -142,12 +173,25 @@ export function initWizardChess(options = {}) {
     let roboticsArenaInstance = null;
     const cathedralWindowLights = [];
 
-    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.22, 65);
-    camera.position.set(0, 2.22, 2.72);
+    const initialAspect = (window.innerWidth || 1) / Math.max(1, window.innerHeight || 1);
+    const camera = new THREE.PerspectiveCamera(
+      getResponsiveCameraFov(initialAspect),
+      initialAspect,
+      0.22,
+      65
+    );
+    const initialDistScale = getResponsiveDistanceScale();
+    camera.position.set(0, 2.22 * initialDistScale, 2.72 * initialDistScale);
 
     const orbitControls = new OrbitControls(camera, renderer.domElement);
     orbitControls.enableDamping = true;
-    orbitControls.dampingFactor = 0.16;
+    orbitControls.dampingFactor = isMobileProfile ? 0.14 : 0.16;
+    orbitControls.rotateSpeed = isMobileProfile ? 0.88 : 1.0;
+    orbitControls.zoomSpeed = isMobileProfile ? 1.15 : 1.0;
+    orbitControls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN
+    };
     orbitControls.maxPolarAngle = Math.PI * 0.88;
     orbitControls.minPolarAngle = 0.05;
     orbitControls.minDistance = 0.95;
@@ -263,8 +307,9 @@ export function initWizardChess(options = {}) {
     const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
     keyLight.position.set(3.8, 8.5, 4.2);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
+    const initialShadowRes = isMobileProfile ? 1024 : 2048;
+    keyLight.shadow.mapSize.width = initialShadowRes;
+    keyLight.shadow.mapSize.height = initialShadowRes;
     keyLight.shadow.camera.near = 1.0;
     keyLight.shadow.camera.far = 22.0;
     const d = 3.2;
@@ -1397,278 +1442,323 @@ export function initWizardChess(options = {}) {
       return setFloorStoneLook(0);
     }
 
+    const decodedGlbCache = new Map();
+    let cathedralLoadPromise = null;
+
+    async function decodeBase64GzipToBuffer(b64Text) {
+      let gzBytes;
+      if (typeof Uint8Array.fromBase64 === 'function') {
+        gzBytes = Uint8Array.fromBase64(b64Text);
+      } else {
+        const binStr = atob(b64Text);
+        gzBytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) {
+          gzBytes[i] = binStr.charCodeAt(i);
+        }
+      }
+      if (typeof DecompressionStream === 'function') {
+        const ds = new DecompressionStream('gzip');
+        const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
+        return await new Response(stream).arrayBuffer();
+      }
+      throw new Error('DecompressionStream unavailable');
+    }
+
+    async function loadGltfModel(baseName) {
+      if (decodedGlbCache.has(baseName)) {
+        const cachedBuf = decodedGlbCache.get(baseName);
+        return new Promise((resolve, reject) => {
+          gltfLoader.parse(cachedBuf.slice(0), './assets/glb/', (gltf) => resolve(gltf), (err) => reject(err));
+        });
+      }
+
+      let arrayBuffer = null;
+      try {
+        const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`, { cache: 'force-cache' });
+        if (resB64.ok) {
+          const b64Text = (await resB64.text()).trim();
+          if (b64Text.length > 64) {
+            arrayBuffer = await decodeBase64GzipToBuffer(b64Text);
+          }
+        }
+      } catch (e) {}
+
+      if (!arrayBuffer) {
+        const resGlb = await fetch(`./assets/glb/${baseName}.glb`, { cache: 'force-cache' });
+        if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
+        arrayBuffer = await resGlb.arrayBuffer();
+      }
+
+      if (!isMobileProfile) {
+        decodedGlbCache.set(baseName, arrayBuffer.slice(0));
+      }
+
+      return new Promise((resolve, reject) => {
+        gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => resolve(gltf), (err) => reject(err));
+      });
+    }
+
+    const flameCoreShader = createSculptedFlameTongueShader({
+      baseColor: [1.0, 0.96, 0.72],
+      midColor: [1.0, 0.64, 0.12],
+      tipColor: [1.0, 0.36, 0.03],
+      strength: 1.85,
+      opacity: 0.92,
+      zMin: 0.60,
+      zMax: 1.64,
+      layerSeed: 0.0
+    });
+    const flameMidShader = createSculptedFlameTongueShader({
+      baseColor: [1.0, 0.78, 0.25],
+      midColor: [1.0, 0.40, 0.04],
+      tipColor: [0.92, 0.16, 0.01],
+      strength: 1.35,
+      opacity: 0.82,
+      zMin: 0.60,
+      zMax: 1.52,
+      layerSeed: 2.1
+    });
+    const flameOuterShader = createSculptedFlameTongueShader({
+      baseColor: [1.0, 0.45, 0.06],
+      midColor: [0.88, 0.18, 0.015],
+      tipColor: [0.45, 0.03, 0.002],
+      strength: 0.95,
+      opacity: 0.68,
+      zMin: 0.60,
+      zMax: 1.36,
+      layerSeed: 4.4
+    });
+    const charredEmberLogsShader = createCharredEmberLogsShader();
+
+    function ensureCathedralLoaded(onLoadedProgress) {
+      if (cathedralRootRef) return Promise.resolve(cathedralRootRef);
+      if (cathedralLoadPromise) return cathedralLoadPromise;
+
+      const rawAniso = renderer.capabilities.getMaxAnisotropy() || 4;
+      const maxAniso = isMobileProfile ? Math.min(4, rawAniso) : Math.min(8, rawAniso);
+
+      cathedralLoadPromise = loadGltfModel('option8_cathedral')
+        .then((gltf) => {
+          if (isDisposed) return null;
+          const cathedralRoot = gltf.scene;
+          cathedralRoot.position.set(0, 0, -0.65);
+
+          cathedralRoot.traverse((child) => {
+            if (!child.isMesh) return;
+            child.receiveShadow = true;
+            if (child.geometry && !child.geometry.boundingSphere) {
+              child.geometry.computeBoundingSphere();
+            }
+            const meshName = child.name || '';
+            const mNameFirst = (Array.isArray(child.material) ? child.material[0]?.name : child.material?.name) || '';
+
+            if (meshName.includes('Brazier_Flame_Core') || mNameFirst.includes('Flame_Core')) {
+              child.material = flameCoreShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 12;
+              return;
+            }
+            if (meshName.includes('Brazier_Flame_Mid') || mNameFirst.includes('Flame_Mid')) {
+              stripIcosphereSparksFromFlameGeometry(child.geometry);
+              child.material = flameMidShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 11;
+              return;
+            }
+            if (meshName.includes('Brazier_Flame_Outer') || mNameFirst.includes('Flame_Outer')) {
+              child.material = flameOuterShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 10;
+              return;
+            }
+            if (meshName.includes('Embers_Logs') || mNameFirst.includes('Ember')) {
+              child.material = charredEmberLogsShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              return;
+            }
+
+            const isShadowCasterProp =
+              meshName.includes('Obsidian_Altar') ||
+              meshName.includes('Altar_Golden_Runes');
+
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            for (const mat of mats) {
+              if (!mat) continue;
+              const mName = mat.name || '';
+              const isAmberGlass =
+                mName.includes('Amber') ||
+                mName.includes('Narthex_Amber') ||
+                meshName.includes('Narthex_Amber');
+              const isGlass =
+                isAmberGlass ||
+                mName.includes('Glass') ||
+                mName.includes('Lancet') ||
+                mName.includes('Rose') ||
+                meshName.includes('Glass') ||
+                meshName.includes('Window');
+              const isRay = mName.includes('GodRay') || meshName.includes('GodRay');
+
+              for (const texKey of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
+                if (mat[texKey]) {
+                  mat[texKey].anisotropy = maxAniso;
+                  mat[texKey].needsUpdate = true;
+                }
+              }
+
+              if (!mat.userData.origCaptured) {
+                mat.userData.origCaptured = true;
+                mat.userData.origMap = mat.map || null;
+                mat.userData.origNormalMap = mat.normalMap || null;
+                mat.userData.origRoughnessMap = mat.roughnessMap || null;
+                mat.userData.origEmissiveMap = mat.emissiveMap || null;
+              }
+
+              if (mat.normalMap && mat.normalScale) {
+                const isDoorMat = mName.includes('Oak') || mName.includes('Door') || meshName.includes('Door');
+                const nScale = isDoorMat ? 1.05 : 1.15;
+                mat.normalScale.set(nScale, nScale);
+              }
+
+              if (isAmberGlass) {
+                mat.vertexColors = false;
+                mat.color = new THREE.Color(0xffe6b8);
+                mat.emissive = new THREE.Color(0xffa033);
+                mat.emissiveIntensity = 2.45;
+                mat.roughness = 0.15;
+                mat.metalness = 0.0;
+                mat.side = THREE.DoubleSide;
+                child.castShadow = false;
+              } else if (isGlass) {
+                mat.vertexColors = false;
+                mat.color = new THREE.Color(0xdbeeff);
+                mat.emissive = new THREE.Color(0x68a8ff);
+                mat.emissiveIntensity = 2.65;
+                mat.roughness = 0.15;
+                mat.metalness = 0.0;
+                mat.side = THREE.DoubleSide;
+                child.castShadow = false;
+              } else if (isRay) {
+                child.visible = false;
+                child.castShadow = false;
+                child.receiveShadow = false;
+              } else {
+                if (mat.map) {
+                  mat.vertexColors = true;
+                }
+                child.castShadow = isShadowCasterProp;
+
+                if (mName.includes('Floor') || mName.includes('Flagstone') || meshName.includes('Floor')) {
+                  applyCathedralStoneRealismShader(mat, true);
+                  if (!cathedralFloorMats.includes(mat)) cathedralFloorMats.push(mat);
+                } else if (
+                  mName.includes('Column_Stone') ||
+                  mName.includes('Tracery') ||
+                  meshName.includes('Plinth') ||
+                  meshName.includes('Tracery')
+                ) {
+                  applyCathedralStoneRealismShader(mat, false);
+                  if (!cathedralColumnMats.includes(mat)) cathedralColumnMats.push(mat);
+                } else if (
+                  mName.includes('Gothic_Ashlar') ||
+                  mName.includes('Ashlar') ||
+                  mName.includes('Vault') ||
+                  meshName.includes('Cathedral_Stone')
+                ) {
+                  applyCathedralStoneRealismShader(mat, false);
+                  if (!cathedralWallMats.includes(mat)) cathedralWallMats.push(mat);
+                }
+              }
+              mat.needsUpdate = true;
+            }
+          });
+
+          setWallStoneLook(0);
+          setFloorStoneLook(0);
+          cathedralRootRef = cathedralRoot;
+          cathedralRoot.visible = activeArena === 'cathedral';
+          scene.add(cathedralRoot);
+          renderer.shadowMap.needsUpdate = true;
+          onLoadedProgress?.('Cathedral Architecture Loaded...');
+          return cathedralRoot;
+        })
+        .catch((err) => {
+          console.warn('Cathedral GLB load warning:', err);
+          onLoadedProgress?.('Cathedral Loaded');
+          return null;
+        });
+
+      return cathedralLoadPromise;
+    }
+
+    async function loadPieceTemplate(type, bumpProgress) {
+      try {
+        const gltf = await loadGltfModel(`${type}_white`);
+        const toRemove = [];
+        gltf.scene.traverse((child) => {
+          const nm = child.name || '';
+          if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
+            child.visible = false;
+            toRemove.push(child);
+          } else if (child.isMesh && child.geometry && !child.geometry.boundingSphere) {
+            child.geometry.computeBoundingSphere();
+          }
+        });
+        for (const rem of toRemove) {
+          if (rem.parent) rem.parent.remove(rem);
+        }
+        const tpl = {
+          scene: gltf.scene,
+          animations: gltf.animations || []
+        };
+        pieceTemplates[`${type}_w`] = tpl;
+        pieceTemplates[`${type}_b`] = tpl;
+        bumpProgress(`Summoned ${type.toUpperCase()} Model...`);
+      } catch (err) {
+        console.warn(`Piece load warning (${type}):`, err);
+        bumpProgress(`Loaded ${type}`);
+      }
+    }
+
     async function loadAllAssets() {
       const loaderBar = document.getElementById('loader-bar');
       const loaderText = document.getElementById('loader-text');
-      const totalItems = PIECE_TYPES.length + 1;
-
-      async function loadGltfModel(baseName) {
-        let arrayBuffer = null;
-        try {
-          const resB64 = await fetch(`./assets/glb/${baseName}.glb.gz.b64`);
-          if (resB64.ok) {
-            const b64Text = (await resB64.text()).trim();
-            if (b64Text.length > 64) {
-              const binStr = atob(b64Text);
-              const gzBytes = new Uint8Array(binStr.length);
-              for (let i = 0; i < binStr.length; i++) {
-                gzBytes[i] = binStr.charCodeAt(i);
-              }
-              const ds = new DecompressionStream('gzip');
-              const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
-              arrayBuffer = await new Response(stream).arrayBuffer();
-            }
-          }
-        } catch (e) {}
-
-        if (!arrayBuffer) {
-          const resGlb = await fetch(`./assets/glb/${baseName}.glb`);
-          if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
-          arrayBuffer = await resGlb.arrayBuffer();
-        }
-
-        return new Promise((resolve, reject) => {
-          gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => resolve(gltf), (err) => reject(err));
-        });
-      }
+      const needsCathedralOnBoot = settings.arenaId !== 'robotics';
+      const totalItems = PIECE_TYPES.length + (needsCathedralOnBoot ? 1 : 0);
       let loadedCount = 0;
 
       function bumpProgress(label) {
         loadedCount++;
-        const pct = Math.min(100, Math.round((loadedCount / totalItems) * 100));
+        const pct = Math.min(100, Math.round((loadedCount / Math.max(1, totalItems)) * 100));
         if (loaderBar) loaderBar.style.width = `${pct}%`;
         if (loaderText) loaderText.textContent = label;
       }
 
-      // Instantiate custom GLSL shaders for the 3 sculpted brazier flame layers & charred ember logs
-      const flameCoreShader = createSculptedFlameTongueShader({
-        baseColor: [1.0, 0.96, 0.72],
-        midColor: [1.0, 0.64, 0.12],
-        tipColor: [1.0, 0.36, 0.03],
-        strength: 1.85,
-        opacity: 0.92,
-        zMin: 0.60,
-        zMax: 1.64,
-        layerSeed: 0.0
-      });
-      const flameMidShader = createSculptedFlameTongueShader({
-        baseColor: [1.0, 0.78, 0.25],
-        midColor: [1.0, 0.40, 0.04],
-        tipColor: [0.92, 0.16, 0.01],
-        strength: 1.35,
-        opacity: 0.82,
-        zMin: 0.60,
-        zMax: 1.52,
-        layerSeed: 2.1
-      });
-      const flameOuterShader = createSculptedFlameTongueShader({
-        baseColor: [1.0, 0.45, 0.06],
-        midColor: [0.88, 0.18, 0.015],
-        tipColor: [0.45, 0.03, 0.002],
-        strength: 0.95,
-        opacity: 0.68,
-        zMin: 0.60,
-        zMax: 1.36,
-        layerSeed: 4.4
-      });
-      const charredEmberLogsShader = createCharredEmberLogsShader();
-
-      // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
-      const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      await new Promise((resolve) => {
-        loadGltfModel('option8_cathedral').then(
-          (gltf) => {
-            const cathedralRoot = gltf.scene;
-            cathedralRoot.position.set(0, 0, -0.65);
-
-            cathedralRoot.traverse((child) => {
-              if (!child.isMesh) return;
-              child.receiveShadow = true;
-              const meshName = child.name || '';
-              const mNameFirst = (Array.isArray(child.material) ? child.material[0]?.name : child.material?.name) || '';
-
-              if (meshName.includes('Brazier_Flame_Core') || mNameFirst.includes('Flame_Core')) {
-                child.material = flameCoreShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                child.renderOrder = 12;
-                return;
-              }
-              if (meshName.includes('Brazier_Flame_Mid') || mNameFirst.includes('Flame_Mid')) {
-                stripIcosphereSparksFromFlameGeometry(child.geometry);
-                child.material = flameMidShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                child.renderOrder = 11;
-                return;
-              }
-              if (meshName.includes('Brazier_Flame_Outer') || mNameFirst.includes('Flame_Outer')) {
-                child.material = flameOuterShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                child.renderOrder = 10;
-                return;
-              }
-              if (meshName.includes('Embers_Logs') || mNameFirst.includes('Ember')) {
-                child.material = charredEmberLogsShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                return;
-              }
-
-              // Only the central Obsidian Altar casts real-time directional shadows;
-              // cathedral columns/walls/ceiling and twin braziers use baked 3D Chiaroscuro & BVH ray-traced AO
-              // so they never project clipped or directional shadows across the floor.
-              const isShadowCasterProp =
-                meshName.includes('Obsidian_Altar') ||
-                meshName.includes('Altar_Golden_Runes');
-
-              const mats = Array.isArray(child.material) ? child.material : [child.material];
-              for (const mat of mats) {
-                if (!mat) continue;
-                const mName = mat.name || '';
-                const isAmberGlass =
-                  mName.includes('Amber') ||
-                  mName.includes('Narthex_Amber') ||
-                  meshName.includes('Narthex_Amber');
-                const isGlass =
-                  isAmberGlass ||
-                  mName.includes('Glass') ||
-                  mName.includes('Lancet') ||
-                  mName.includes('Rose') ||
-                  meshName.includes('Glass') ||
-                  meshName.includes('Window');
-                const isRay = mName.includes('GodRay') || meshName.includes('GodRay');
-
-                for (const texKey of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
-                  if (mat[texKey]) {
-                    mat[texKey].anisotropy = maxAniso;
-                    mat[texKey].needsUpdate = true;
-                  }
-                }
-
-                // Preserve native 1024x1024 GLB-baked textures before any look switching
-                if (!mat.userData.origCaptured) {
-                  mat.userData.origCaptured = true;
-                  mat.userData.origMap = mat.map || null;
-                  mat.userData.origNormalMap = mat.normalMap || null;
-                  mat.userData.origRoughnessMap = mat.roughnessMap || null;
-                  mat.userData.origEmissiveMap = mat.emissiveMap || null;
-                }
-
-                if (mat.normalMap && mat.normalScale) {
-                  const isDoorMat = mName.includes('Oak') || mName.includes('Door') || meshName.includes('Door');
-                  const nScale = isDoorMat ? 1.05 : 1.15;
-                  mat.normalScale.set(nScale, nScale);
-                }
-
-                if (isAmberGlass) {
-                  mat.vertexColors = false;
-                  mat.color = new THREE.Color(0xffe6b8);
-                  mat.emissive = new THREE.Color(0xffa033);
-                  mat.emissiveIntensity = 2.45;
-                  mat.roughness = 0.15;
-                  mat.metalness = 0.0;
-                  mat.side = THREE.DoubleSide;
-                  child.castShadow = false;
-                } else if (isGlass) {
-                  mat.vertexColors = false;
-                  mat.color = new THREE.Color(0xdbeeff);
-                  mat.emissive = new THREE.Color(0x68a8ff);
-                  mat.emissiveIntensity = 2.65;
-                  mat.roughness = 0.15;
-                  mat.metalness = 0.0;
-                  mat.side = THREE.DoubleSide;
-                  child.castShadow = false;
-                } else if (isRay) {
-                  child.visible = false;
-                  child.castShadow = false;
-                  child.receiveShadow = false;
-                } else {
-                  if (mat.map) {
-                    mat.vertexColors = true;
-                  }
-                  child.castShadow = isShadowCasterProp;
-
-                  // Register Wall, Column/Arch/Plinth, and Floor stone materials for live 6-look switching & Realism Shader
-                  if (mName.includes('Floor') || mName.includes('Flagstone') || meshName.includes('Floor')) {
-                    applyCathedralStoneRealismShader(mat, true);
-                    if (!cathedralFloorMats.includes(mat)) cathedralFloorMats.push(mat);
-                  } else if (
-                    mName.includes('Column_Stone') ||
-                    mName.includes('Tracery') ||
-                    meshName.includes('Plinth') ||
-                    meshName.includes('Tracery')
-                  ) {
-                    applyCathedralStoneRealismShader(mat, false);
-                    if (!cathedralColumnMats.includes(mat)) cathedralColumnMats.push(mat);
-                  } else if (
-                    mName.includes('Gothic_Ashlar') ||
-                    mName.includes('Ashlar') ||
-                    mName.includes('Vault') ||
-                    meshName.includes('Cathedral_Stone')
-                  ) {
-                    applyCathedralStoneRealismShader(mat, false);
-                    if (!cathedralWallMats.includes(mat)) cathedralWallMats.push(mat);
-                  }
-                }
-                mat.needsUpdate = true;
-              }
-            });
-
-            // Initialize default Look 1/6 (Original Ashlar & Abbey Flagstone) on Wall/Column Stone and Floor Stone
-            setWallStoneLook(0);
-            setFloorStoneLook(0);
-            cathedralRootRef = cathedralRoot;
-            scene.add(cathedralRoot);
-
-            bumpProgress('Cathedral Architecture Loaded...');
-            resolve();
-          },
-          (err) => {
-            console.warn('Cathedral GLB load warning:', err);
-            bumpProgress('Cathedral Loaded');
-            resolve();
-          }
-        );
-      });
-
-      // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
-      for (const type of PIECE_TYPES) {
-        await new Promise((resolve) => {
-          loadGltfModel(`${type}_white`).then(
-            (gltf) => {
-              const toRemove = [];
-              gltf.scene.traverse((child) => {
-                const nm = child.name || '';
-                if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
-                  child.visible = false;
-                  toRemove.push(child);
-                }
-              });
-              for (const rem of toRemove) {
-                if (rem.parent) rem.parent.remove(rem);
-              }
-
-              const tpl = {
-                scene: gltf.scene,
-                animations: gltf.animations || []
-              };
-              pieceTemplates[`${type}_w`] = tpl;
-              pieceTemplates[`${type}_b`] = tpl;
-              bumpProgress(`Summoned ${type.toUpperCase()} Statue...`);
-              resolve();
-            },
-            (err) => {
-              console.warn(`Piece load warning (${type}):`, err);
-              bumpProgress(`Loaded ${type}`);
-              resolve();
+      // Parallelize GLB decoding in mobile-safe batches so startup does not block serially
+      const concurrency = isMobileProfile ? 3 : 6;
+      const queue = [...PIECE_TYPES];
+      const workers = Array.from({ length: concurrency }, async () => {
+        while (queue.length > 0 && !isDisposed) {
+          const nextType = queue.shift();
+          if (nextType) {
+            await loadPieceTemplate(nextType, bumpProgress);
+            if (isMobileProfile) {
+              await new Promise((r) => setTimeout(r, 0));
             }
-          );
-        });
+          }
+        }
+      });
+
+      if (needsCathedralOnBoot) {
+        await Promise.all([...workers, ensureCathedralLoaded(bumpProgress)]);
+      } else {
+        await Promise.all(workers);
       }
 
-      bumpProgress('Summoning Complete.');
+      bumpProgress('Arena Ready.');
     }
 
     // =========================================================================
@@ -1726,7 +1816,7 @@ export function initWizardChess(options = {}) {
     function applyGraphicsQuality(quality) {
       const q = quality === 'low' || quality === 'medium' ? quality : 'high';
       settings.graphicsQuality = q;
-      const dprCap = q === 'low' ? 1 : q === 'medium' ? 1.5 : 2;
+      const dprCap = q === 'low' ? 1 : q === 'medium' ? 1.45 : isMobileProfile ? 1.75 : 2;
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
       renderer.shadowMap.enabled = q !== 'low';
       for (let i = 0; i < brazierLights.length; i++) {
@@ -1793,6 +1883,9 @@ export function initWizardChess(options = {}) {
           entry.mesh.material = entry.matRobo;
         }
       } else {
+        if (!cathedralRootRef) {
+          ensureCathedralLoaded();
+        }
         if (cathedralRootRef) cathedralRootRef.visible = true;
         if (roboticsArenaInstance) {
           roboticsArenaInstance.group.visible = false;
@@ -1954,6 +2047,7 @@ export function initWizardChess(options = {}) {
             schemaVersion: 1,
             id: gameId,
             dateIso: new Date().toISOString(),
+            arenaId: settings.arenaId,
             playMode: settings.playMode,
             playerColor: settings.playerColor,
             difficulty: settings.difficulty,
@@ -1977,6 +2071,7 @@ export function initWizardChess(options = {}) {
         schemaVersion: 1,
         id: gameId,
         updatedAt: new Date().toISOString(),
+        arenaId: settings.arenaId,
         fen: status.fen,
         pgn: status.pgn,
         playMode: settings.playMode,
@@ -2125,7 +2220,8 @@ export function initWizardChess(options = {}) {
 
     function setCameraForSide(color, immediate = false) {
       const zSign = color === 'b' ? -1 : 1;
-      const desiredPos = new THREE.Vector3(0, 2.22, zSign * 2.72);
+      const distScale = getResponsiveDistanceScale();
+      const desiredPos = new THREE.Vector3(0, 2.22 * distScale, zSign * 2.72 * distScale);
       const desiredTarget = new THREE.Vector3(0, 0.85, zSign * -0.15);
       if (immediate || isReducedMotionActive()) {
         activeCamTransition = null;
@@ -3903,11 +3999,13 @@ export function initWizardChess(options = {}) {
     // =========================================================================
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const activePointers = new Map();
+    let gestureHadMultiTouch = false;
     let pointerDownPos = { x: 0, y: 0 };
 
     function resolveBoardSquareFromEvent(clientX, clientY) {
       const rect = renderer.domElement.getBoundingClientRect();
-      if (!rect.width || !rect.height) return -1;
+      if (!rect.width || !rect.height) return null;
       pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -3945,10 +4043,17 @@ export function initWizardChess(options = {}) {
     }
 
     const handlePointerDown = (e) => {
-      pointerDownPos = { x: e.clientX, y: e.clientY };
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+      if (activePointers.size > 1) {
+        gestureHadMultiTouch = true;
+      }
+      if (e.isPrimary !== false) {
+        pointerDownPos = { x: e.clientX, y: e.clientY };
+      }
     };
 
     const handlePointerMove = (e) => {
+      if (e.pointerType === 'touch') return;
       if (isDisposed || webglContextLost || isAnimatingMove || gameOver || replayPly !== null || pendingPromotion) {
         renderer.domElement.style.cursor = 'grab';
         return;
@@ -3967,9 +4072,26 @@ export function initWizardChess(options = {}) {
       renderer.domElement.style.cursor = isTarget || canSelectHovered ? 'pointer' : 'grab';
     };
 
+    const handlePointerCancel = (e) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) {
+        gestureHadMultiTouch = false;
+      }
+    };
+
     const handlePointerUp = (e) => {
-      const moveDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-      if (moveDist > 6) return;
+      const downRecord = activePointers.get(e.pointerId);
+      activePointers.delete(e.pointerId);
+      const wasMultiTouch = gestureHadMultiTouch || activePointers.size > 0;
+      if (activePointers.size === 0) {
+        gestureHadMultiTouch = false;
+      }
+      if (wasMultiTouch || e.isPrimary === false) return;
+
+      const startPt = downRecord || pointerDownPos;
+      const moveDist = Math.hypot(e.clientX - startPt.x, e.clientY - startPt.y);
+      const tapThreshold = e.pointerType === 'touch' ? 14 : 6;
+      if (moveDist > tapThreshold) return;
       if (isDisposed || webglContextLost || isAnimatingMove || gameOver || replayPly !== null || pendingPromotion) return;
 
       const status = rules.getStatus();
@@ -4016,6 +4138,7 @@ export function initWizardChess(options = {}) {
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointermove', handlePointerMove);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('pointercancel', handlePointerCancel);
 
     // =========================================================================
     // Camera Presets & Orbit Transition Guard
@@ -4057,6 +4180,7 @@ export function initWizardChess(options = {}) {
     }
 
     function setCameraPreset(preset) {
+      const distScale = getResponsiveDistanceScale();
       if (preset === 'reset') {
         activeCamTransition = null;
         playerCamSide = playerColor === 'b' ? 'b' : 'w';
@@ -4075,20 +4199,20 @@ export function initWizardChess(options = {}) {
         overheadCamSide = playerColor === 'b' ? 'b' : 'w';
         setActiveCamButton('btn-cam-top');
         const zSign = overheadCamSide === 'b' ? -1 : 1;
-        smoothCameraTo(new THREE.Vector3(0, 6.85, zSign * 3.65), new THREE.Vector3(0, 0.78, 0), 0.75);
+        smoothCameraTo(new THREE.Vector3(0, 6.85 * distScale, zSign * 3.65 * distScale), new THREE.Vector3(0, 0.78, 0), 0.75);
       } else if (preset === 'side') {
         const wasSideActive = document.getElementById('btn-cam-side')?.classList.contains('active');
         sideCamSide = wasSideActive && sideCamSide === 'east' ? 'west' : 'east';
         setActiveCamButton('btn-cam-side');
         const xSign = sideCamSide === 'west' ? -1 : 1;
-        smoothCameraTo(new THREE.Vector3(xSign * 2.85, 1.85, 0), new THREE.Vector3(0, 0.84, 0), 0.75);
+        smoothCameraTo(new THREE.Vector3(xSign * 2.85 * distScale, 1.85 * distScale, 0), new THREE.Vector3(0, 0.84, 0), 0.75);
       } else if (preset === 'wide') {
         cathedralWideSide = playerColor === 'b' ? 'south' : 'north';
         setActiveCamButton('btn-cam-wide');
         if (cathedralWideSide === 'south') {
-          smoothCameraTo(new THREE.Vector3(0, 2.55, -6.65), new THREE.Vector3(0, 1.95, 2.50), 0.85);
+          smoothCameraTo(new THREE.Vector3(0, 2.55 * distScale, -6.65), new THREE.Vector3(0, 1.95, 2.50), 0.85);
         } else {
-          smoothCameraTo(new THREE.Vector3(0, 2.55, 6.65), new THREE.Vector3(0, 1.95, -2.50), 0.85);
+          smoothCameraTo(new THREE.Vector3(0, 2.55 * distScale, 6.65), new THREE.Vector3(0, 1.95, -2.50), 0.85);
         }
       } else if (preset === 'white_backdrop') {
         smoothCameraTo(new THREE.Vector3(0, 2.35, -3.10), new THREE.Vector3(0, 2.20, 8.50), 0.85);
@@ -4111,9 +4235,13 @@ export function initWizardChess(options = {}) {
 
     const handleResize = () => {
       if (isDisposed || webglContextLost) return;
-      camera.aspect = window.innerWidth / window.innerHeight;
+      const w = window.innerWidth || 1;
+      const h = Math.max(1, window.innerHeight || 1);
+      const nextAspect = w / h;
+      camera.aspect = nextAspect;
+      camera.fov = getResponsiveCameraFov(nextAspect);
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(w, h);
     };
 
     const handleWebGLContextLost = (e) => {
@@ -4151,7 +4279,10 @@ export function initWizardChess(options = {}) {
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointermove', handlePointerMove);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('pointercancel', handlePointerCancel);
       renderer.domElement.removeEventListener('webglcontextlost', handleWebGLContextLost);
+
+      decodedGlbCache.clear();
 
       orbitControls.removeEventListener('start', handleOrbitStart);
       orbitControls.dispose();

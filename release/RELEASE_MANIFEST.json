@@ -4,27 +4,27 @@
   "publisher": "InnerAnimalMedia",
   "collection": "Entertainment",
   "version": "1.0.0",
-  "generatedAt": "2026-11-14T07:20:10.910Z",
+  "generatedAt": "2026-11-18T06:17:27.077Z",
   "artifacts": {
     "source": {
       "file": "wizard-chess-3d-source.zip",
-      "bytes": 17977475,
-      "sha256": "b6aaec407fd72197e59ecbc5ca36d1aae84b7285a5ba83becca691b4072c9866"
+      "bytes": 18053500,
+      "sha256": "a22f8244a56951473699b31ea308148ab6fe05eb2abf6e1d46a7194f562fd788"
     },
     "web": {
       "file": "wizard-chess-3d-web.zip",
-      "bytes": 12635732,
-      "sha256": "d9cb523da0ef5cc710eb03c88d9a430c258f0d5904bf941d266114ad81ce9011"
+      "bytes": 12705107,
+      "sha256": "271546ddb952bae92376fbedd2419006d0681f5e2c8429d40d2bcd830d23aa09"
     },
     "chatgptPlugin": {
       "file": "wizard-chess-3d-chatgpt-plugin.zip",
       "bytes": 2076407,
-      "sha256": "f3a7cc6bcc2617d589931fa3676878aa7a2485c35553fb5b8e733731b03049c7"
+      "sha256": "d0f42ddf06bb45f30d63003a2a0903e141a0123a19191f670278cc53531359da"
     },
     "entertainment": {
       "file": "wizard-chess-3d-entertainment.zip",
-      "bytes": 2071489,
-      "sha256": "2056bc96f1c053088f8c3ee04384b2640819416e5fac5641a5fe6c4b69283155"
+      "bytes": 2072999,
+      "sha256": "28c1e497b6c9308d6df66652786ec3059b72b43be85bba0c3ed59873008ee95b"
     }
   }
 }
