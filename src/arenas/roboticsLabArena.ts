@@ -1083,6 +1083,19 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
   function update(dt: number, state: RoboticsArenaUpdateState) {
     simTime += dt;
 
+    // Only a committed Black move triggers the visual opponent gesture.
+    // Chess legality and state remain owned by the existing chess engine.
+    if (!state.lastMove) {
+      lastFrankaMoveKey = '';
+    } else if (state.lastMove.color === 'b') {
+      const moveKey = state.lastMove.ply + ':' + state.lastMove.fromSq + ':' + state.lastMove.toSq;
+      if (moveKey !== lastFrankaMoveKey) {
+        lastFrankaMoveKey = moveKey;
+        void frankaOpponent.playMove(state.lastMove.fromSq, state.lastMove.toSq);
+      }
+    }
+    frankaOpponent.update(performance.now());
+
     // Update status LEDs (White = crisp ivory/cyan, Black = cobalt blue, Check/Mate = crimson)
     if (state.isGameOver || state.inCheck) {
       tableStatusLedMat.color.setHex(0xef4444);
