@@ -36,6 +36,7 @@ export interface RoboticsArenaUpdateState {
   inCheck: boolean;
   reducedMotion: boolean;
   targetCoord?: { r: number; c: number } | null;
+  lastMove?: { ply: number; fromSq: string; toSq: string; color: 'w' | 'b' } | null;
 }
 
 export interface RoboticsLabArenaInstance {
