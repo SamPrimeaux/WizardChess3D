@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export const FRANKA_VISUAL_URL = '/assets/glb/franka-panda-visual-v2.glb';
+export const FRANKA_VISUAL_URL = './assets/glb/franka-panda-visual-v2.glb';
 
 /**
  * Normalize the source-preserving Franka Panda GLB into the Robotics Workcell.
