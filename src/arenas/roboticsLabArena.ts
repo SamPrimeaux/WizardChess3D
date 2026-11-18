@@ -1160,6 +1160,7 @@ export function createRoboticsLabArena(renderer: THREE.WebGLRenderer): RoboticsL
   }
 
   function dispose() {
+    frankaOpponent.dispose();
     for (const g of disposables.geometries) g.dispose();
     for (const m of disposables.materials) m.dispose();
     for (const t of disposables.textures) t.dispose();
