@@ -21,7 +21,7 @@ function demoFranka() {
 }
 
 test('Franka uses the versioned, source-preserving public asset', () => {
-  assert.equal(FRANKA_VISUAL_URL, '/assets/glb/franka-panda-visual-v2.glb');
+  assert.equal(FRANKA_VISUAL_URL, './assets/glb/franka-panda-visual-v2.glb');
 });
 
 test('Franka keeps all seven articulated joints and stays outside playable tiles', () => {
