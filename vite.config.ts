@@ -63,7 +63,7 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 16 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2,b64,json}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2,b64,json,glb}'],
         globIgnores: ['assets/aistudio/**'],
         cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
