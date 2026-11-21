@@ -7,15 +7,21 @@ import {
   type WizardChessUISnapshot,
 } from './engine/fallbackEngine';
 import {
+  clearCareerStats,
   clearGameHistory,
+  countRecordCaptures,
   DEFAULT_SETTINGS,
   deleteGameHistoryRecord,
+  formatDurationClock,
   loadActiveGame,
+  loadCareerStats,
   loadGameHistory,
   loadSettings,
+  resolveRecordOutcome,
   saveSettings,
   type AIDifficulty,
   type ArenaId,
+  type CareerStats,
   type ClockDirection,
   type ClockPresetId,
   type CompletedGameRecord,
@@ -32,6 +38,9 @@ import { ARENA_CATALOG } from './arenas/roboticsLabArena';
 import { Board2DFallback } from './components/Board2DFallback';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ArcadeLandingPage } from './components/ArcadeLandingPage';
+import { CrownDraughtsGame } from './components/CrownDraughtsGame';
+import { OrbitalReversiGame } from './components/OrbitalReversiGame';
 import {
   emitEntertainmentStateUpdate,
   notifyEntertainmentHostReady,
@@ -231,14 +240,33 @@ export default function App() {
 
   const [settingsState, setSettingsState] = useState<GameSettings>(initialSettings);
   const [rendererPref, setRendererPref] = useState<RendererPreference>(initialSettings.rendererPreference);
-  const [screen, setScreen] = useState<'home' | 'game'>(() => {
-    if (typeof window === 'undefined') return 'home';
+  const [screen, setScreen] = useState<'landing' | 'home' | 'game' | 'draughts' | 'reversi'>(() => {
+    if (typeof window === 'undefined') return 'landing';
     const params = new URLSearchParams(window.location.search);
-    if (mcpEmbedded || params.get('play') === '1' || navigator.webdriver) return 'game';
-    return 'home';
+    if (mcpEmbedded || params.get('play') === '1') return 'game';
+    const gameParam = params.get('game');
+    if (gameParam === 'draughts' || gameParam === 'checkers') return 'draughts';
+    if (gameParam === 'reversi') return 'reversi';
+    if (gameParam === 'chess' || params.get('screen') === 'home' || params.get('arena')) return 'home';
+    return 'landing';
   });
+  const [chessMounted, setChessMounted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return Boolean(
+      mcpEmbedded ||
+        params.get('play') === '1' ||
+        params.get('game') === 'chess' ||
+        params.get('screen') === 'home' ||
+        params.get('arena')
+    );
+  });
+  const pendingChessActionRef = useRef<
+    { kind: 'quick'; arena?: ArenaId } | { kind: 'resume' } | null
+  >(null);
   const [savedActiveGame, setSavedActiveGame] = useState<SavedGameState | null>(() => loadActiveGame());
   const [completedGames, setCompletedGames] = useState<CompletedGameRecord[]>(() => loadGameHistory());
+  const [careerStats, setCareerStats] = useState<CareerStats>(() => loadCareerStats());
 
   const [snapshot, setSnapshot] = useState<WizardChessUISnapshot | null>(null);
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
@@ -285,10 +313,14 @@ export default function App() {
     document.body.dataset.arena = visualArena;
   }, [visualArena]);
 
-  // Mount / Remount 3D or 2D Controller cleanly when renderer preference changes
+  // Mount / Remount 3D or 2D Controller cleanly when Wizard Chess is entered or renderer changes
   useEffect(() => {
     const currentSettings = loadSettings();
     notifyEntertainmentHostReady(currentSettings);
+
+    if (!chessMounted) {
+      return;
+    }
 
     const handleStateChange = (next: WizardChessUISnapshot) => {
       setSnapshot(next);
@@ -329,6 +361,7 @@ export default function App() {
 
     const handleGameCompleted = () => {
       setCompletedGames(loadGameHistory());
+      setCareerStats(loadCareerStats());
     };
 
     let ctrl: WizardChessController;
@@ -353,13 +386,27 @@ export default function App() {
     controllerRef.current = ctrl;
     setSnapshot(ctrl.getSnapshot());
 
+    const pending = pendingChessActionRef.current;
+    if (pending) {
+      pendingChessActionRef.current = null;
+      if (pending.kind === 'resume') {
+        const saved = loadActiveGame();
+        if (saved) ctrl.resumeSavedGame(saved);
+      } else if (pending.kind === 'quick') {
+        const latest = loadSettings();
+        const merged = pending.arena ? { ...latest, arenaId: pending.arena } : latest;
+        saveSettings(merged);
+        ctrl.resetChessBoard(true, merged);
+      }
+    }
+
     return () => {
       ctrl.destroy();
       if (controllerRef.current === ctrl) {
         controllerRef.current = null;
       }
     };
-  }, [rendererPref]);
+  }, [chessMounted, rendererPref]);
 
   // MCP Apps Host Bridge
   useEffect(() => {
@@ -481,12 +528,15 @@ export default function App() {
       if (typeof window !== 'undefined' && window.innerWidth <= 900) {
         setHistoryCollapsed(true);
       }
+      setChessMounted(true);
       setScreen('game');
 
       if (merged.rendererPreference !== rendererPref) {
         setRendererPref(merged.rendererPreference);
+      } else if (controllerRef.current) {
+        controllerRef.current.resetChessBoard(true, merged);
       } else {
-        controllerRef.current?.resetChessBoard(true, merged);
+        pendingChessActionRef.current = { kind: 'quick', arena: merged.arenaId };
       }
     },
     [
@@ -511,9 +561,43 @@ export default function App() {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) {
       setHistoryCollapsed(true);
     }
+    setChessMounted(true);
     setScreen('game');
-    controllerRef.current?.resumeSavedGame(saved);
+    if (controllerRef.current) {
+      controllerRef.current.resumeSavedGame(saved);
+    } else {
+      pendingChessActionRef.current = { kind: 'resume' };
+    }
   }, []);
+
+  const handleOpenChessLobbyFromArcade = useCallback(
+    (arenaId?: ArenaId) => {
+      if (arenaId) {
+        setDraftArena(arenaId);
+        const updated: GameSettings = { ...settingsState, arenaId };
+        saveSettings(updated);
+        setSettingsState(updated);
+        controllerRef.current?.setArena(arenaId);
+      }
+      setChessMounted(true);
+      setScreen('home');
+    },
+    [settingsState]
+  );
+
+  const handleReturnToArcade = useCallback(() => {
+    setMobileSheetOpen(false);
+    setClockMenuOpen(false);
+    setCameraMenuOpen(false);
+    setActiveModal('none');
+    if (snapshot && !snapshot.clockPaused && !snapshot.isGameOver) {
+      controllerRef.current?.toggleClockPause();
+    }
+    setSavedActiveGame(loadActiveGame());
+    setCompletedGames(loadGameHistory());
+    setCareerStats(loadCareerStats());
+    setScreen('landing');
+  }, [snapshot]);
 
   const handleApplyLiveSettings = useCallback(() => {
     const ctrl = controllerRef.current;
@@ -786,12 +870,51 @@ export default function App() {
     };
   }, [snapshot?.captured.byWhite, snapshot?.captured.byBlack]);
 
+  const isChessScreen = screen === 'home' || screen === 'game';
+
   return (
     <div className={mcpDisplayMode === 'inline' ? 'mcp-inline-shell' : ''}>
       <OfflineIndicator />
 
-      {!show2DBoard && (
-        <div id="loading-overlay">
+      {/* ENTERTAINMENT LANDING PAGE & MULTI-GAME ARCADE */}
+      {screen === 'landing' && mcpDisplayMode !== 'inline' && (
+        <ArcadeLandingPage
+          savedChessGame={savedActiveGame}
+          onPlayWizardChessQuick={(arenaId) =>
+            startFreshMatch(arenaId ? { arenaId } : undefined)
+          }
+          onOpenWizardChessLobby={handleOpenChessLobbyFromArcade}
+          onResumeWizardChess={handleContinueSavedGame}
+          onPlayCrownDraughts={() => setScreen('draughts')}
+          onPlayOrbitalReversi={() => setScreen('reversi')}
+        />
+      )}
+
+      {screen === 'draughts' && (
+        <CrownDraughtsGame
+          onBackToArcade={handleReturnToArcade}
+          onSwitchGame={(target) => {
+            if (target === 'chess') handleOpenChessLobbyFromArcade();
+            else setScreen('reversi');
+          }}
+        />
+      )}
+
+      {screen === 'reversi' && (
+        <OrbitalReversiGame
+          onBackToArcade={handleReturnToArcade}
+          onSwitchGame={(target) => {
+            if (target === 'chess') handleOpenChessLobbyFromArcade();
+            else setScreen('draughts');
+          }}
+        />
+      )}
+
+      {chessMounted && !show2DBoard && (
+        <div
+          id="loading-overlay"
+          style={{ display: isChessScreen ? undefined : 'none' }}
+        >
           <div className="loader-emblem">
             <ArenaEmblem arena={visualArena} />
           </div>
@@ -810,11 +933,11 @@ export default function App() {
       {/* 3D Arena Canvas (or 2D Fallback Board when WebGL is unavailable / 2D chosen) */}
       <div
         id="canvas-container"
-        style={{ display: show2DBoard ? 'none' : 'block' }}
-        aria-hidden={show2DBoard}
+        style={{ display: chessMounted && isChessScreen && !show2DBoard ? 'block' : 'none' }}
+        aria-hidden={!isChessScreen || show2DBoard}
       />
 
-      {show2DBoard && snapshot && (
+      {isChessScreen && show2DBoard && snapshot && (
         <Board2DFallback
           boardMatrix={snapshot.boardMatrix}
           flipped={snapshot.playerColor === 'b' && snapshot.playMode === 'ai'}
@@ -841,8 +964,15 @@ export default function App() {
         <main className="home-overlay" role="main" aria-label="Wizard Chess 3D Title Screen">
           <section className="home-card">
             <div className="home-publisher-row">
-              <span className="home-publisher-badge">InnerAnimalMedia • Entertainment</span>
-              <span className="home-version-tag">v1.0.0</span>
+              <button
+                type="button"
+                id="btn-home-back-arcade"
+                className="home-back-arcade-btn"
+                onClick={handleReturnToArcade}
+              >
+                ← All Games
+              </button>
+              <span className="home-version-tag">InnerAnimalMedia · v1.0.0</span>
             </div>
 
             <div className="home-hero-block">
@@ -988,6 +1118,7 @@ export default function App() {
                 className="hud-btn"
                 onClick={() => {
                   setCompletedGames(loadGameHistory());
+                  setCareerStats(loadCareerStats());
                   setActiveModal('history');
                 }}
               >
@@ -1401,6 +1532,7 @@ export default function App() {
                 id="btn-open-history"
                 onClick={() => {
                   setCompletedGames(loadGameHistory());
+                  setCareerStats(loadCareerStats());
                   setMobileSheetOpen(false);
                   setActiveModal('history');
                 }}
@@ -1408,6 +1540,18 @@ export default function App() {
                 <HudIcon name="history" />
                 <span>Archive</span>
               </button>
+
+              {mcpDisplayMode !== 'inline' && (
+                <button
+                  type="button"
+                  className="hud-btn"
+                  id="btn-in-game-all-games"
+                  onClick={handleReturnToArcade}
+                  title="Return to InnerAnimalMedia Game Library"
+                >
+                  <span>All Games</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1853,6 +1997,19 @@ export default function App() {
             )}
             <button
               type="button"
+              id="btn-gameover-open-archive"
+              className="checkmate-btn"
+              onClick={() => {
+                if (snapshot) setGameOverDismissedForId(snapshot.gameId);
+                setCompletedGames(loadGameHistory());
+                setCareerStats(loadCareerStats());
+                setActiveModal('history');
+              }}
+            >
+              Career &amp; Archive
+            </button>
+            <button
+              type="button"
               className="checkmate-btn secondary"
               onClick={() => snapshot && setGameOverDismissedForId(snapshot.gameId)}
             >
@@ -2004,12 +2161,12 @@ export default function App() {
         </div>
       )}
 
-      {/* GAME HISTORY MODAL */}
+      {/* GAME HISTORY & CAREER STATISTICS MODAL */}
       {activeModal === 'history' && (
         <div className="modal-backdrop open" role="dialog" aria-modal="true" aria-label="Completed Games Archive">
-          <div className="sanctum-modal">
+          <div className="sanctum-modal archive-modal">
             <div className="sanctum-modal-header">
-              <h3>Saved Game Archive</h3>
+              <h3>Archive &amp; Career Record</h3>
               <button
                 type="button"
                 className="modal-close-btn"
@@ -2020,64 +2177,183 @@ export default function App() {
               </button>
             </div>
 
+            <section
+              id="archive-career-stats"
+              className="career-stats-section"
+              aria-label="Career Statistics"
+            >
+              <div className="career-stats-header">
+                <span className="career-stats-kicker">Career Statistics</span>
+                <span className="career-stats-summary" id="career-stats-wld">
+                  {careerStats.wins}W · {careerStats.losses}L · {careerStats.draws}D ·{' '}
+                  {careerStats.totalGames} {careerStats.totalGames === 1 ? 'Match' : 'Matches'}
+                </span>
+              </div>
+
+              <div className="career-ratio-bar" aria-hidden="true">
+                {careerStats.totalGames > 0 ? (
+                  <>
+                    <span
+                      className="career-ratio-seg win"
+                      style={{ width: `${(careerStats.wins / careerStats.totalGames) * 100}%` }}
+                    />
+                    <span
+                      className="career-ratio-seg draw"
+                      style={{ width: `${(careerStats.draws / careerStats.totalGames) * 100}%` }}
+                    />
+                    <span
+                      className="career-ratio-seg loss"
+                      style={{ width: `${(careerStats.losses / careerStats.totalGames) * 100}%` }}
+                    />
+                  </>
+                ) : (
+                  <span className="career-ratio-seg empty" style={{ width: '100%' }} />
+                )}
+              </div>
+
+              <div className="career-stats-grid">
+                <div className="career-stat-cell" id="career-stat-win-loss">
+                  <span className="career-stat-label">Win / Loss %</span>
+                  <strong className="career-stat-value">
+                    {careerStats.winRatePct.toFixed(1)}% / {careerStats.lossRatePct.toFixed(1)}%
+                  </strong>
+                  <span className="career-stat-sub">
+                    {careerStats.draws > 0
+                      ? `${careerStats.drawRatePct.toFixed(1)}% draw (${careerStats.draws})`
+                      : `${careerStats.wins} won · ${careerStats.losses} lost`}
+                  </span>
+                </div>
+
+                <div className="career-stat-cell" id="career-stat-captures">
+                  <span className="career-stat-label">Total Captures</span>
+                  <strong className="career-stat-value">{careerStats.totalCaptures}</strong>
+                  <span className="career-stat-sub">
+                    {careerStats.playerCaptures} yours · {careerStats.opponentCaptures} opp
+                  </span>
+                </div>
+
+                <div className="career-stat-cell" id="career-stat-longest">
+                  <span className="career-stat-label">Longest Game</span>
+                  <strong className="career-stat-value">
+                    {formatDurationClock(careerStats.longestGameSeconds)}
+                  </strong>
+                  <span className="career-stat-sub">
+                    {careerStats.longestGameMoves > 0
+                      ? `Peak ${careerStats.longestGameMoves} plies`
+                      : 'No completed matches'}
+                  </span>
+                </div>
+
+                <div className="career-stat-cell" id="career-stat-playtime">
+                  <span className="career-stat-label">Play Time &amp; Streak</span>
+                  <strong className="career-stat-value">
+                    {formatDurationClock(careerStats.totalDurationSeconds)}
+                  </strong>
+                  <span className="career-stat-sub">
+                    Streak {careerStats.currentWinStreak}W · Best {careerStats.bestWinStreak}W
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <div className="archive-list-heading">
+              <span>Match Log ({completedGames.length})</span>
+            </div>
+
             {completedGames.length === 0 ? (
-              <p className="modal-empty">No completed games archived yet. Finish or resign a match to save it here.</p>
+              <p className="modal-empty">
+                No completed games in the match log yet. Finish or resign a match to archive its replay here.
+              </p>
             ) : (
               <div className="history-archive-list">
-                {completedGames.map((rec) => (
-                  <div key={rec.id} className="history-archive-item">
-                    <div className="history-archive-meta">
-                      <strong>{rec.result} — {rec.termination}</strong>
-                      <span>
-                        {new Date(rec.dateIso).toLocaleDateString()} • {rec.moveCount} plies •{' '}
-                        {rec.playMode === 'ai' ? `vs AI (${rec.difficulty})` : 'Local 2P'}
-                      </span>
+                {completedGames.map((rec) => {
+                  const caps = countRecordCaptures(rec);
+                  const outcome = resolveRecordOutcome(rec);
+                  const outcomeLabel =
+                    rec.playMode === 'local'
+                      ? rec.result === '1-0'
+                        ? 'White Won'
+                        : rec.result === '0-1'
+                        ? 'Black Won'
+                        : 'Draw'
+                      : outcome === 'win'
+                      ? 'Victory'
+                      : outcome === 'loss'
+                      ? 'Defeat'
+                      : 'Draw';
+                  return (
+                    <div key={rec.id} className="history-archive-item">
+                      <div className="history-archive-meta">
+                        <strong>
+                          {outcomeLabel} · {rec.result} — {rec.termination}
+                        </strong>
+                        <span className="history-archive-submeta">
+                          {new Date(rec.dateIso).toLocaleDateString()} · {rec.moveCount} plies ·{' '}
+                          {caps.totalCaptures} {caps.totalCaptures === 1 ? 'capture' : 'captures'} ·{' '}
+                          {formatDurationClock(rec.durationSeconds ?? 0)} ·{' '}
+                          {rec.playMode === 'ai' ? `vs AI (${rec.difficulty})` : 'Local 2P'}
+                        </span>
+                      </div>
+                      <div className="history-archive-btns">
+                        <button
+                          type="button"
+                          className="hud-btn primary"
+                          onClick={() => {
+                            setActiveModal('none');
+                            setChessMounted(true);
+                            setScreen('game');
+                            controllerRef.current?.loadCompletedGameReplay(rec);
+                          }}
+                        >
+                          Replay
+                        </button>
+                        <button
+                          type="button"
+                          className="hud-btn"
+                          onClick={() => handleCopyText('pgn', rec.pgn)}
+                        >
+                          PGN
+                        </button>
+                        <button
+                          type="button"
+                          className="hud-btn"
+                          onClick={() => setCompletedGames(deleteGameHistoryRecord(rec.id))}
+                          aria-label="Delete game record"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
-                    <div className="history-archive-btns">
-                      <button
-                        type="button"
-                        className="hud-btn primary"
-                        onClick={() => {
-                          setActiveModal('none');
-                          setScreen('game');
-                          controllerRef.current?.loadCompletedGameReplay(rec);
-                        }}
-                      >
-                        Replay
-                      </button>
-                      <button
-                        type="button"
-                        className="hud-btn"
-                        onClick={() => handleCopyText('pgn', rec.pgn)}
-                      >
-                        PGN
-                      </button>
-                      <button
-                        type="button"
-                        className="hud-btn"
-                        onClick={() => setCompletedGames(deleteGameHistoryRecord(rec.id))}
-                        aria-label="Delete game record"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {completedGames.length > 0 && (
+            {(completedGames.length > 0 || careerStats.totalGames > 0) && (
               <div className="modal-footer-actions">
-                <button
-                  type="button"
-                  className="sanctum-secondary-btn"
-                  onClick={() => {
-                    clearGameHistory();
-                    setCompletedGames([]);
-                  }}
-                >
-                  Clear All History
-                </button>
+                {careerStats.totalGames > 0 && (
+                  <button
+                    type="button"
+                    id="btn-reset-career-stats"
+                    className="sanctum-secondary-btn"
+                    onClick={() => setCareerStats(clearCareerStats())}
+                  >
+                    Reset Career Stats
+                  </button>
+                )}
+                {completedGames.length > 0 && (
+                  <button
+                    type="button"
+                    id="btn-clear-archive-history"
+                    className="sanctum-secondary-btn"
+                    onClick={() => {
+                      clearGameHistory();
+                      setCompletedGames([]);
+                    }}
+                  >
+                    Clear All History
+                  </button>
+                )}
               </div>
             )}
           </div>

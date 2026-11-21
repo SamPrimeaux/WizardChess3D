@@ -2,9 +2,11 @@ import { WizardChessRules, rcToSquare, squareToRc, type BoardCell, type LegalTar
 import { chooseBestAIMove } from './chessAI';
 import { soundFx } from './soundFx';
 import {
+  countRecordCaptures,
   DEFAULT_SETTINGS,
   loadActiveGame,
   loadSettings,
+  normalizeCompletedGameRecord,
   saveActiveGame,
   saveCompletedGame,
   saveSettings,
@@ -165,43 +167,87 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
   let replayRules: WizardChessRules | null = null;
   let pendingPromotion: PendingPromotion | null = null;
 
+  let matchVirtualSeconds = 0;
+  let matchWallAccumulatedSeconds = 0;
+  let matchUnpausedSinceMs: number | null = null;
+  let matchStartedAtIso: string | null = null;
+
+  function pauseMatchTimer() {
+    if (matchUnpausedSinceMs !== null) {
+      matchWallAccumulatedSeconds += Math.max(0, (Date.now() - matchUnpausedSinceMs) / 1000);
+      matchUnpausedSinceMs = null;
+    }
+  }
+
+  function resumeMatchTimer() {
+    if (matchUnpausedSinceMs === null) {
+      matchUnpausedSinceMs = Date.now();
+    }
+  }
+
+  function resetMatchTimer(initialElapsed = 0, startedIso: string | null = null, startRunning = false) {
+    const clean = Number.isFinite(initialElapsed) ? Math.max(0, initialElapsed) : 0;
+    matchVirtualSeconds = clean;
+    matchWallAccumulatedSeconds = clean;
+    matchStartedAtIso = startedIso;
+    matchUnpausedSinceMs = startRunning ? Date.now() : null;
+  }
+
+  function getCurrentElapsedSeconds(hasMoves: boolean): number {
+    const liveWall =
+      matchWallAccumulatedSeconds +
+      (matchUnpausedSinceMs !== null ? Math.max(0, (Date.now() - matchUnpausedSinceMs) / 1000) : 0);
+    const combined = Math.max(matchVirtualSeconds, liveWall);
+    if (!hasMoves) return 0;
+    return Math.max(1, Math.round(combined));
+  }
+
   function persistSettings() {
     saveSettings(settings);
   }
 
   function persistActiveState() {
     const status = rules.getStatus();
+    const moves = rules.getMoves();
     if (status.isGameOver) {
+      pauseMatchTimer();
       saveActiveGame(null);
-      if (completionRecordedForGameId !== gameId && rules.getMoves().length > 0) {
+      if (completionRecordedForGameId !== gameId && moves.length > 0) {
         completionRecordedForGameId = gameId;
-        const record: CompletedGameRecord = {
+        const caps = countRecordCaptures({ moves, playerColor: settings.playerColor });
+        const record = normalizeCompletedGameRecord({
           schemaVersion: 1,
           id: gameId,
           dateIso: new Date().toISOString(),
+          arenaId: settings.arenaId,
           playMode: settings.playMode,
           playerColor: settings.playerColor,
           difficulty: settings.difficulty,
           clockPreset: settings.clockPreset,
           result: status.result === '*' ? '1/2-1/2' : status.result,
           termination: status.termination || 'Completed',
-          moveCount: rules.getMoves().length,
+          moveCount: moves.length,
+          durationSeconds: getCurrentElapsedSeconds(true),
+          captureCount: caps.totalCaptures,
+          playerCaptures: caps.playerCaptures,
+          opponentCaptures: caps.opponentCaptures,
           pgn: rules.getPgn(),
           finalFen: status.fen,
-          moves: rules.getMoves(),
-        };
+          moves,
+        });
         saveCompletedGame(record);
         options.onGameCompleted?.(record);
       }
       return;
     }
 
-    if (rules.getMoves().length === 0) return;
+    if (moves.length === 0) return;
 
     saveActiveGame({
       schemaVersion: 1,
       id: gameId,
       updatedAt: new Date().toISOString(),
+      arenaId: settings.arenaId,
       fen: status.fen,
       pgn: status.pgn,
       playMode: settings.playMode,
@@ -211,7 +257,9 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       clockDirection: settings.clockDirection,
       whiteSeconds,
       blackSeconds,
-      moves: rules.getMoves(),
+      elapsedSeconds: getCurrentElapsedSeconds(true),
+      startedAtIso: matchStartedAtIso || undefined,
+      moves,
       status: 'active',
     });
   }
@@ -353,6 +401,13 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
     const res = rules.executeMove(fromR, fromC, toR, toC, moveOpts.promotion);
     if (!res) return false;
 
+    if (!matchStartedAtIso) {
+      matchStartedAtIso = new Date().toISOString();
+    }
+    if (!clockPaused) {
+      resumeMatchTimer();
+    }
+
     pendingPromotion = null;
     selectedHistoryPly = res.move.ply;
 
@@ -402,6 +457,7 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
     replayPly = null;
     replayRules = null;
     pendingPromotion = null;
+    resetMatchTimer(0, null, false);
     resetClockInternal();
     saveActiveGame(null);
     emit();
@@ -419,6 +475,11 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       settings.clockDirection = saved.clockDirection;
       whiteSeconds = saved.whiteSeconds;
       blackSeconds = saved.blackSeconds;
+      resetMatchTimer(
+        saved.elapsedSeconds ?? 0,
+        saved.startedAtIso ?? null,
+        saved.moves.length > 0 && !rules.getStatus().isGameOver
+      );
       selectedHistoryPly = saved.moves.length > 0 ? saved.moves[saved.moves.length - 1].ply : null;
     }
   }
@@ -433,9 +494,14 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
         clockPaused ||
         status.isGameOver ||
         replayPly !== null ||
-        settings.clockPreset === 'unlimited' ||
         rules.getMoves().length === 0
       ) {
+        return;
+      }
+
+      matchVirtualSeconds += dt;
+
+      if (settings.clockPreset === 'unlimited') {
         return;
       }
 
@@ -507,6 +573,12 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       settings.clockDirection = saved.clockDirection;
       whiteSeconds = saved.whiteSeconds;
       blackSeconds = saved.blackSeconds;
+      clockPaused = false;
+      resetMatchTimer(
+        saved.elapsedSeconds ?? 0,
+        saved.startedAtIso ?? null,
+        saved.moves.length > 0 && !rules.getStatus().isGameOver
+      );
       replayPly = null;
       replayRules = null;
       pendingPromotion = null;
@@ -566,6 +638,7 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       selectedHistoryPly = null;
       replayPly = null;
       replayRules = null;
+      resetMatchTimer(0, null, false);
       resetClockInternal();
       emit();
       maybeScheduleAIMove();
@@ -580,6 +653,7 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
       selectedHistoryPly = res.moves.length > 0 ? res.moves[res.moves.length - 1].ply : null;
       replayPly = null;
       replayRules = null;
+      resetMatchTimer(0, null, res.moves.length > 0 && !rules.getStatus().isGameOver);
       resetClockInternal();
       emit();
       return { ok: true };
@@ -677,6 +751,11 @@ export function createFallbackChessController(options: WizardChessInitOptions = 
     },
     toggleClockPause(force) {
       clockPaused = typeof force === 'boolean' ? force : !clockPaused;
+      if (clockPaused) {
+        pauseMatchTimer();
+      } else if (rules.getMoves().length > 0 && !rules.getStatus().isGameOver) {
+        resumeMatchTimer();
+      }
       emit();
     },
     setSoundMuted(muted) {

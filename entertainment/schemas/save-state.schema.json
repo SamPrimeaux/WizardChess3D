@@ -34,6 +34,8 @@
     "clockDirection": { "type": "string", "enum": ["down", "up"] },
     "whiteSeconds": { "type": "number", "minimum": 0 },
     "blackSeconds": { "type": "number", "minimum": 0 },
+    "elapsedSeconds": { "type": "number", "minimum": 0 },
+    "startedAtIso": { "type": "string", "format": "date-time" },
     "status": { "type": "string", "enum": ["active", "completed"] },
     "result": { "type": "string", "enum": ["1-0", "0-1", "1/2-1/2"] },
     "termination": { "type": "string" },

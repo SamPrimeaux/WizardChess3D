@@ -9,9 +9,11 @@ import { CLOCK_PRESET_CONFIG, createFallbackChessController } from './engine/fal
 import { createRoboticsLabArena, createRoboticsPMREMEnvironment } from './arenas/roboticsLabArena';
 import { createPieceSkinSystem } from './arenas/pieceSkins';
 import {
+  countRecordCaptures,
   DEFAULT_SETTINGS,
   loadActiveGame,
   loadSettings,
+  normalizeCompletedGameRecord,
   saveActiveGame,
   saveCompletedGame,
   saveSettings,
@@ -2036,14 +2038,51 @@ export function initWizardChess(options = {}) {
       }
     }
 
+    let matchVirtualSeconds = 0;
+    let matchWallAccumulatedSeconds = 0;
+    let matchUnpausedSinceMs = null;
+    let matchStartedAtIso = null;
+
+    function pauseMatchTimer() {
+      if (matchUnpausedSinceMs !== null) {
+        matchWallAccumulatedSeconds += Math.max(0, (Date.now() - matchUnpausedSinceMs) / 1000);
+        matchUnpausedSinceMs = null;
+      }
+    }
+
+    function resumeMatchTimer() {
+      if (matchUnpausedSinceMs === null) {
+        matchUnpausedSinceMs = Date.now();
+      }
+    }
+
+    function resetMatchTimer(initialElapsed = 0, startedIso = null, startRunning = false) {
+      const clean = Number.isFinite(initialElapsed) ? Math.max(0, initialElapsed) : 0;
+      matchVirtualSeconds = clean;
+      matchWallAccumulatedSeconds = clean;
+      matchStartedAtIso = startedIso;
+      matchUnpausedSinceMs = startRunning ? Date.now() : null;
+    }
+
+    function getCurrentElapsedSeconds(hasMoves) {
+      const liveWall =
+        matchWallAccumulatedSeconds +
+        (matchUnpausedSinceMs !== null ? Math.max(0, (Date.now() - matchUnpausedSinceMs) / 1000) : 0);
+      const combined = Math.max(matchVirtualSeconds, liveWall);
+      if (!hasMoves) return 0;
+      return Math.max(1, Math.round(combined));
+    }
+
     function persistActiveState() {
       const status = rules.getStatus();
       const moves = rules.getMoves();
       if (status.isGameOver) {
+        pauseMatchTimer();
         saveActiveGame(null);
         if (completionRecordedForGameId !== gameId && moves.length > 0) {
           completionRecordedForGameId = gameId;
-          const record = {
+          const caps = countRecordCaptures({ moves, playerColor: settings.playerColor });
+          const record = normalizeCompletedGameRecord({
             schemaVersion: 1,
             id: gameId,
             dateIso: new Date().toISOString(),
@@ -2055,10 +2094,14 @@ export function initWizardChess(options = {}) {
             result: status.result === '*' ? '1/2-1/2' : status.result,
             termination: status.termination || 'Completed',
             moveCount: moves.length,
+            durationSeconds: getCurrentElapsedSeconds(true),
+            captureCount: caps.totalCaptures,
+            playerCaptures: caps.playerCaptures,
+            opponentCaptures: caps.opponentCaptures,
             pgn: rules.getPgn(),
             finalFen: status.fen,
             moves,
-          };
+          });
           saveCompletedGame(record);
           options.onGameCompleted?.(record);
         }
@@ -2081,6 +2124,8 @@ export function initWizardChess(options = {}) {
         clockDirection: chessClock.direction,
         whiteSeconds: chessClock.whiteSeconds,
         blackSeconds: chessClock.blackSeconds,
+        elapsedSeconds: getCurrentElapsedSeconds(true),
+        startedAtIso: matchStartedAtIso || undefined,
         moves,
         status: 'active',
       });
@@ -2161,6 +2206,11 @@ export function initWizardChess(options = {}) {
 
     function toggleClockPause(force) {
       chessClock.paused = typeof force === 'boolean' ? force : !chessClock.paused;
+      if (chessClock.paused) {
+        pauseMatchTimer();
+      } else if (rules.getMoves().length > 0 && !rules.getStatus().isGameOver) {
+        resumeMatchTimer();
+      }
       updateClockUI(true);
       emitStateChange();
     }
@@ -2447,6 +2497,7 @@ export function initWizardChess(options = {}) {
       replayPly = null;
       replayRules = null;
       pendingPromotion = null;
+      resetMatchTimer(0, null, false);
       clearHistoryHighlight();
       syncPiecesFromEngine(rules);
 
@@ -2482,6 +2533,11 @@ export function initWizardChess(options = {}) {
       chessClock.blackSeconds = saved.blackSeconds;
       chessClock.paused = false;
       chessClock.timeoutWinner = null;
+      resetMatchTimer(
+        saved.elapsedSeconds ?? 0,
+        saved.startedAtIso ?? null,
+        saved.moves.length > 0 && !rules.getStatus().isGameOver
+      );
       replayPly = null;
       replayRules = null;
       pendingPromotion = null;
@@ -2564,6 +2620,7 @@ export function initWizardChess(options = {}) {
       replayPly = null;
       replayRules = null;
       pendingPromotion = null;
+      resetMatchTimer(0, null, false);
       clearHistoryHighlight();
       syncPiecesFromEngine(rules);
       resetChessClock();
@@ -2582,6 +2639,7 @@ export function initWizardChess(options = {}) {
       replayPly = null;
       replayRules = null;
       pendingPromotion = null;
+      resetMatchTimer(0, null, res.moves.length > 0 && !rules.getStatus().isGameOver);
       selectedHistoryPly = res.moves.length > 0 ? res.moves[res.moves.length - 1].ply : null;
       syncPiecesFromEngine(rules);
       const lastMv = res.moves[res.moves.length - 1];
@@ -2838,6 +2896,13 @@ export function initWizardChess(options = {}) {
 
       const moveRes = rules.executeMove(fromR, fromC, toR, toC, moveOpts.promotion);
       if (!moveRes) return false;
+
+      if (!matchStartedAtIso) {
+        matchStartedAtIso = new Date().toISOString();
+      }
+      if (!chessClock.paused) {
+        resumeMatchTimer();
+      }
 
       pendingPromotion = null;
       selectedHistoryPly = moveRes.move.ply;
@@ -4433,6 +4498,16 @@ export function initWizardChess(options = {}) {
       const prevCamPos = camera.position.clone();
 
       const status = rules.getStatus();
+      if (
+        chessClock.assetsReady &&
+        !chessClock.paused &&
+        !status.isGameOver &&
+        !gameOver &&
+        replayPly === null &&
+        rules.getMoves().length > 0
+      ) {
+        matchVirtualSeconds += dt;
+      }
       if (
         chessClock.assetsReady &&
         !chessClock.paused &&

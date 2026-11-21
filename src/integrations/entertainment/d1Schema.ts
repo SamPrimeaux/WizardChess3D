@@ -523,3 +523,115 @@ export function buildD1UpsertSql(bundle: D1ChessGameBundle): string {
 
   return statements.join('\n');
 }
+
+export interface GenericArcadeMoveInput {
+  ply: number;
+  moveNumber: number;
+  color: D1ChessColor;
+  fromSquare: string;
+  toSquare: string;
+  piece: string;
+  notation: string;
+  capturedPiece?: string | null;
+  promotion?: string | null;
+  boardAfter?: string | null;
+}
+
+export interface GenericArcadeGameInput {
+  gameId: string;
+  gameType: 'checkers' | 'reversi';
+  status: D1GameStatus;
+  turn: D1ChessColor;
+  winner: D1GameWinner;
+  resultReason: string | null;
+  pieceSet: string;
+  initialState: string;
+  currentState: string;
+  whiteDisplayName: string;
+  blackDisplayName: string;
+  moves: GenericArcadeMoveInput[];
+  metadata?: Record<string, unknown>;
+}
+
+export function buildArcadeGameD1Bundle(input: GenericArcadeGameInput): D1ChessGameBundle {
+  const nowIso = new Date().toISOString();
+  const gameId = input.gameId.startsWith('game_') ? input.gameId : `game_${input.gameId}`;
+  const roomId = `room_${gameId}`;
+  const roomStatus: D1RoomStatus = input.status === 'completed' ? 'closed' : 'in_game';
+
+  const room: GameRoomRow = {
+    id: roomId,
+    game_type: input.gameType,
+    status: roomStatus,
+    host_player_id: 'player_white',
+    host_display_name: input.whiteDisplayName,
+    current_game_id: gameId,
+    is_private: 0,
+    max_players: 2,
+    do_stub_id: `do_${roomId}`,
+    tenant_id: null,
+    workspace_id: 'ws_inneranimalmedia',
+    join_code: null,
+    visibility: 'private',
+    metadata_json: JSON.stringify(input.metadata || {}),
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const game: GameRow = {
+    id: gameId,
+    game_type: input.gameType,
+    status: input.status,
+    room_id: roomId,
+    white_player_id: 'player_white',
+    black_player_id: 'player_black',
+    white_display_name: input.whiteDisplayName,
+    black_display_name: input.blackDisplayName,
+    current_turn: input.turn,
+    winner: input.winner,
+    result_reason: input.resultReason,
+    piece_set_white: input.pieceSet,
+    piece_set_black: input.pieceSet,
+    board_state: input.currentState,
+    move_count: input.moves.length,
+    tenant_id: null,
+    workspace_id: 'ws_inneranimalmedia',
+    do_id: room.do_stub_id,
+    initial_fen: input.initialState,
+    current_fen: input.currentState,
+    pgn: input.moves.map((m) => m.notation).join(' '),
+    last_move_at: input.moves.length > 0 ? nowIso : null,
+    metadata_json: JSON.stringify(input.metadata || {}),
+    started_at: input.moves.length > 0 ? nowIso : null,
+    ended_at: input.status === 'completed' ? nowIso : null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const moveRows: GameMoveRow[] = input.moves.map((m) => ({
+    id: `mv_${gameId}_${m.ply}`,
+    game_id: gameId,
+    move_number: m.moveNumber,
+    player_id: m.color === 'white' ? 'player_white' : 'player_black',
+    color: m.color,
+    from_square: m.fromSquare,
+    to_square: m.toSquare,
+    piece: m.piece,
+    captured_piece: m.capturedPiece ?? null,
+    promotion: m.promotion ?? null,
+    is_check: 0,
+    is_checkmate: 0,
+    is_castling: 0,
+    is_en_passant: 0,
+    fen_after: m.boardAfter ?? null,
+    pgn_notation: m.notation,
+    san: m.notation,
+    lan: `${m.fromSquare}-${m.toSquare}`,
+    time_ms: null,
+    metadata_json: JSON.stringify({ ply: m.ply }),
+    created_at: nowIso,
+  }));
+
+  return { room, game, moves: moveRows };
+}
+

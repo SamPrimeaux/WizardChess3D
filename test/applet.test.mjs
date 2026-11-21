@@ -254,3 +254,213 @@ test('Mobile-optimized GLB loading, touch gesture safeguards, and responsive UI 
   }
 });
 
+test('Entertainment Landing Page, Crown Draughts, and Orbital Reversi are wired with bespoke artwork and D1 support', () => {
+  const appTsx = fs.readFileSync(path.join(ROOT, 'src/App.tsx'), 'utf-8');
+  const landingTsx = fs.readFileSync(path.join(ROOT, 'src/components/ArcadeLandingPage.tsx'), 'utf-8');
+  const draughtsEngine = fs.readFileSync(path.join(ROOT, 'src/games/draughtsEngine.ts'), 'utf-8');
+  const reversiEngine = fs.readFileSync(path.join(ROOT, 'src/games/reversiEngine.ts'), 'utf-8');
+  const d1Ts = fs.readFileSync(path.join(ROOT, 'src/integrations/entertainment/d1Schema.ts'), 'utf-8');
+
+  assert.ok(appTsx.includes('<ArcadeLandingPage'), 'App.tsx must render ArcadeLandingPage');
+  assert.ok(appTsx.includes('<CrownDraughtsGame'), 'App.tsx must render CrownDraughtsGame');
+  assert.ok(appTsx.includes('<OrbitalReversiGame'), 'App.tsx must render OrbitalReversiGame');
+
+  for (const landingId of [
+    'entertainment-landing-page',
+    'btn-topbar-play-chess',
+    'btn-landing-chess-lobby',
+    'btn-landing-play-chess',
+    'btn-landing-play-draughts',
+    'btn-landing-play-reversi',
+  ]) {
+    assert.ok(landingTsx.includes(`id="${landingId}"`), `Missing landing page control #${landingId}`);
+  }
+
+  for (const imgFile of [
+    'src/assets/images/landing_hero_arcade_1795014734827.jpg',
+    'src/assets/images/game_cover_wizard_chess_1795014737531.jpg',
+    'src/assets/images/game_cover_crown_draughts_1795014738432.jpg',
+    'src/assets/images/game_cover_orbital_reversi_1795014739284.jpg',
+  ]) {
+    assert.ok(fs.existsSync(path.join(ROOT, imgFile)), `Missing generated cover asset ${imgFile}`);
+  }
+
+  for (const fnName of [
+    'getLegalDraughtsMoves',
+    'applyDraughtsMove',
+    'chooseDraughtsAIMove',
+    'coordToWcdf',
+  ]) {
+    assert.ok(draughtsEngine.includes(`export function ${fnName}`), `Missing Draughts export ${fnName}`);
+  }
+
+  for (const fnName of [
+    'getLegalReversiMoves',
+    'applyReversiMove',
+    'chooseReversiAIMove',
+    'countReversiDiscs',
+  ]) {
+    assert.ok(reversiEngine.includes(`export function ${fnName}`), `Missing Reversi export ${fnName}`);
+  }
+
+  assert.ok(d1Ts.includes('export function buildArcadeGameD1Bundle'), 'Missing multi-game D1 bundle builder');
+});
+
+test('Career statistics track win/loss %, total captures, longest game duration, and Archive modal hooks', async () => {
+  const storageTs = fs.readFileSync(path.join(ROOT, 'src/engine/storage.ts'), 'utf-8');
+  const engineJs = fs.readFileSync(path.join(ROOT, 'src/wizardChessEngine.js'), 'utf-8');
+  const fallbackTs = fs.readFileSync(path.join(ROOT, 'src/engine/fallbackEngine.ts'), 'utf-8');
+  const appTsx = fs.readFileSync(path.join(ROOT, 'src/App.tsx'), 'utf-8');
+  const stylesCss = fs.readFileSync(path.join(ROOT, 'src/styles.css'), 'utf-8');
+
+  for (const fnExport of [
+    'export interface CareerStats',
+    'export const CAREER_STATS_STORAGE_KEY',
+    'export function countRecordCaptures',
+    'export function resolveRecordOutcome',
+    'export function formatDurationClock',
+    'export function applyCompletedGameToCareerStats',
+    'export function calculateCareerStatsFromRecords',
+    'export function loadCareerStats',
+    'export function recordGameInCareerStats',
+    'export function clearCareerStats',
+  ]) {
+    assert.ok(storageTs.includes(fnExport), `Missing storage career stats export: ${fnExport}`);
+  }
+
+  for (const engineField of ['durationSeconds', 'captureCount', 'playerCaptures', 'opponentCaptures', 'getCurrentElapsedSeconds']) {
+    assert.ok(engineJs.includes(engineField), `3D engine missing completion stat field ${engineField}`);
+    assert.ok(fallbackTs.includes(engineField), `2D fallback engine missing completion stat field ${engineField}`);
+  }
+
+  for (const archiveId of [
+    'id="archive-career-stats"',
+    'id="career-stats-wld"',
+    'id="career-stat-win-loss"',
+    'id="career-stat-captures"',
+    'id="career-stat-longest"',
+    'id="career-stat-playtime"',
+    'id="btn-reset-career-stats"',
+    'id="btn-clear-archive-history"',
+  ]) {
+    assert.ok(appTsx.includes(archiveId), `Archive modal missing element ${archiveId}`);
+  }
+
+  assert.ok(stylesCss.includes('.career-stats-grid'), 'Missing .career-stats-grid style in styles.css');
+  assert.ok(stylesCss.includes('tabular-nums'), 'Career statistics must use tabular-nums');
+
+  // Dynamically import storage.ts in Node (supported natively in Node >= 22.6 via type stripping) to verify math
+  const storageMod = await import('../src/engine/storage.ts');
+  const makeMove = (ply, color, capture) => ({
+    ply,
+    moveNumber: Math.ceil(ply / 2),
+    san: capture ? 'exd5' : 'e4',
+    fromSq: 'e4',
+    toSq: 'd5',
+    color,
+    pieceType: 'pawn',
+    fromR: 4,
+    fromC: 4,
+    toR: 3,
+    toC: 3,
+    capture,
+    fenAfter: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+  });
+
+  //Newest-first history array (chronological order: g1 -> g2 -> g3 -> g4)
+  const sampleHistory = [
+    {
+      schemaVersion: 1,
+      id: 'g4',
+      dateIso: '2026-11-18T12:30:00.000Z',
+      playMode: 'ai',
+      playerColor: 'b',
+      difficulty: 'master',
+      clockPreset: 'rapid',
+      result: '0-1', // Black won -> player won!
+      termination: 'Checkmate',
+      moveCount: 54,
+      durationSeconds: 412,
+      pgn: '',
+      finalFen: '',
+      moves: [makeMove(1, 'w', true), makeMove(2, 'b', true), makeMove(3, 'b', true)],
+    },
+    {
+      schemaVersion: 1,
+      id: 'g3',
+      dateIso: '2026-11-18T12:20:00.000Z',
+      playMode: 'ai',
+      playerColor: 'w',
+      difficulty: 'club',
+      clockPreset: 'blitz',
+      result: '1/2-1/2', // Draw
+      termination: 'Stalemate',
+      moveCount: 62,
+      durationSeconds: 195,
+      pgn: '',
+      finalFen: '',
+      moves: [makeMove(1, 'w', false), makeMove(2, 'b', true)],
+    },
+    {
+      schemaVersion: 1,
+      id: 'g2',
+      dateIso: '2026-11-18T12:10:00.000Z',
+      playMode: 'ai',
+      playerColor: 'w',
+      difficulty: 'club',
+      clockPreset: 'blitz',
+      result: '0-1', // Loss
+      termination: 'Resignation',
+      moveCount: 24,
+      durationSeconds: 95,
+      pgn: '',
+      finalFen: '',
+      moves: [makeMove(1, 'b', true)],
+    },
+    {
+      schemaVersion: 1,
+      id: 'g1',
+      dateIso: '2026-11-18T12:00:00.000Z',
+      playMode: 'ai',
+      playerColor: 'w',
+      difficulty: 'novice',
+      clockPreset: 'blitz',
+      result: '1-0', // Win
+      termination: 'Checkmate',
+      moveCount: 30,
+      durationSeconds: 140,
+      pgn: '',
+      finalFen: '',
+      moves: [makeMove(1, 'w', true), makeMove(2, 'w', true)],
+    },
+  ];
+
+  const stats = storageMod.calculateCareerStatsFromRecords(sampleHistory);
+  assert.equal(stats.totalGames, 4);
+  assert.equal(stats.wins, 2);
+  assert.equal(stats.losses, 1);
+  assert.equal(stats.draws, 1);
+  assert.equal(stats.winRatePct, 50);
+  assert.equal(stats.lossRatePct, 25);
+  assert.equal(stats.drawRatePct, 25);
+  assert.equal(stats.totalCaptures, 7);
+  assert.equal(stats.playerCaptures, 4);
+  assert.equal(stats.opponentCaptures, 3);
+  assert.equal(stats.longestGameSeconds, 412);
+  assert.equal(stats.longestGameMoves, 62);
+  assert.equal(stats.totalDurationSeconds, 842);
+  assert.equal(stats.currentWinStreak, 1);
+  assert.equal(stats.bestWinStreak, 1);
+
+  // Deduplication check: re-applying g4 does not double-count
+  const deduped = storageMod.applyCompletedGameToCareerStats(stats, sampleHistory[0]);
+  assert.equal(deduped.totalGames, 4);
+  assert.equal(deduped.totalCaptures, 7);
+
+  assert.equal(storageMod.formatDurationClock(0), '00:00');
+  assert.equal(storageMod.formatDurationClock(412), '06:52');
+  assert.equal(storageMod.formatDurationClock(3665), '1:01:05');
+});
+
+
+
